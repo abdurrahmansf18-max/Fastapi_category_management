@@ -236,11 +236,11 @@ export default function App() {
     try {
       await CategoriesApi.create({ name, description: toUndef(description) });
       await fetchCats();
-      showNotification("Kategori eklendi", "success");
+      showNotification(t("category_added"), "success");
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.message || "Hata";
       if (String(err?.response?.status) === "409") {
-        showNotification("Aynı isimde bir kategori zaten var", "error");
+        showNotification(t("category_exists"), "error");
       } else {
         showNotification(`Kategori eklenemedi: ${msg}`, "error");
       }
@@ -255,10 +255,7 @@ export default function App() {
     await fetchCats();
   }
   async function deleteCategory(id: UUID) {
-    const confirmed = await showConfirm(
-      "Kategori Sil",
-      "Bu kategoriyi kalıcı olarak silmek istiyor musun? (Bağlı başlıklar da silinir)"
-    );
+    const confirmed = await showConfirm(t("delete_category"), t("delete_category_desc"));
     if (!confirmed) return;
 
     // Optimistic: ekranda anında düşür
@@ -298,10 +295,7 @@ export default function App() {
   }
   // --- Heading
   async function deleteHeading(id: UUID) {
-    const confirmed = await showConfirm(
-      "Başlık Sil",
-      "Bu başlığı kalıcı olarak silmek istiyor musun? (Alt başlıklar/İçerikler de silinir)"
-    );
+    const confirmed = await showConfirm(t("delete_title"), t("delete_title_desc"));
     if (!confirmed) return;
 
     // ✅ Optimistic
@@ -379,7 +373,7 @@ export default function App() {
               } catch (rollbackError) {
                 console.error("[v0] Rollback error:", rollbackError);
                 showNotification(
-                  "İçerik oluşturuldu ancak resim yüklenemedi!",
+                  t("content_added_but_image_failed"),
                   "warning"
                 );
               }
@@ -431,7 +425,7 @@ export default function App() {
             } catch (rollbackError) {
               console.error("[v0] Rollback error:", rollbackError);
               showNotification(
-                "İçerik oluşturuldu ancak bazı resimler kaydedilemedi!",
+                t("content_added_but_some_images_failed"),
                 "warning"
               );
             }
@@ -440,17 +434,17 @@ export default function App() {
         }
 
         showNotification(
-          `İçerik ve ${images.length} resim başarıyla eklendi!`,
+          t("content_images_added_success", { count: images.length }),
           "success"
         );
       } else {
-        showNotification("İçerik başarıyla eklendi!", "success");
+        showNotification(t("content_added_success"), "success");
       }
 
       await fetchContentsByHeading(currentHeadingId ?? headingId);
     } catch (error) {
       console.error("[v0] Content creation error:", error);
-      showNotification("İçerik eklenirken hata oluştu!", "error");
+      showNotification(t("error_adding_content"), "error");
     }
   }
   async function updateContent(id: UUID, fields: any) {
@@ -461,10 +455,7 @@ export default function App() {
     await fetchContentsByHeading(currentHeadingId ?? c.heading_id);
   }
   async function deleteContent(id: UUID) {
-    const confirmed = await showConfirm(
-      "İçerik Sil",
-      "Bu içeriği kalıcı olarak silmek istiyor musun?"
-    );
+    const confirmed = await showConfirm(t("delete_content"), t("delete_content_desc"));
     if (!confirmed) return;
 
     if (selectedContent?.id === id) {
@@ -498,7 +489,7 @@ export default function App() {
     await fetchAdmins();
   }
   async function deleteAdmin(id: UUID) {
-    const confirmed = await showConfirm("Admin Sil", "Bu admin silinsin mi?");
+    const confirmed = await showConfirm(t("delete_admin"), t("delete_admin_desc"));
     if (!confirmed) return;
 
     // Optimistic
@@ -511,7 +502,7 @@ export default function App() {
     }
   }
   async function changeAdminPassword(id: UUID) {
-    const pw = await showPrompt("Şifre Değiştir", "", "Yeni şifre:");
+    const pw = await showPrompt(t("change_password"), "", t("new_password_colon"));
     if (!pw) return;
     await AdminUsersApi.changePw(id, pw);
     await showAlert("Başarılı", "Şifre güncellendi");
@@ -689,7 +680,7 @@ export default function App() {
                   Fastapi
                 </h1>
                 <p className="text-gray-600 dark:text-gray-400 text-base mt-2 font-medium">
-                  Documentation Management System
+                  {t("admin_panel")}
                 </p>
               </div>
 
@@ -698,9 +689,9 @@ export default function App() {
                   e.preventDefault();
                   try {
                     await login(email, password);
-                    showNotification("Giriş başarılı!", "success");
+                    showNotification(t("success") || "Login successful", "success");
                   } catch (err: any) {
-                    showNotification(normalizeError(err), "error");
+                    showNotification(t("error") || "Login failed", "error");
                   }
                 }}
                 className="space-y-6"
@@ -710,7 +701,7 @@ export default function App() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     type="email"
-                    placeholder="Email adresiniz"
+                    placeholder={t("email_placeholder")}
                     className="
                       w-full rounded-2xl border border-gray-300/60 dark:border-gray-700/50
                       bg-white/90 dark:bg-gray-800/80 px-6 py-4 text-lg
@@ -725,7 +716,7 @@ export default function App() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     type="password"
-                    placeholder="Şifreniz"
+                    placeholder={t("password_placeholder")}
                     className="
                       w-full rounded-2xl border border-gray-300/60 dark:border-gray-700/50
                       bg-white/90 dark:bg-gray-800/80 px-6 py-4 text-lg
@@ -750,7 +741,7 @@ export default function App() {
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                   <span className="relative z-10">
-                    {authLoading ? "Giriş yapılıyor..." : "🔐 Giriş Yap"}
+                    {authLoading ? t("loading") : `🔐 ${t("Login")}`}
                   </span>
                 </button>
               </form>
@@ -769,17 +760,17 @@ export default function App() {
                   <div className="text-2xl">🛡️</div>
                   <div className="text-sm leading-7">
                     <div className="font-bold text-base mb-2">
-                      Güvenli Erişim
+                      {t("secure_access")}
                     </div>
                     <ul className="list-disc pl-5 space-y-1.5 text-emerald-800 dark:text-emerald-200">
-                      <li>Sadece yetkili yöneticiler giriş yapabilir</li>
-                      <li>Tüm işlemler güvenli şekilde kaydedilir</li>
+                      <li>{t("secure_access_desc1")}</li>
+                      <li>{t("secure_access_desc2")}</li>
                     </ul>
                   </div>
                 </div>
               </div>
 
-              <div className="flex justify-center mt-8">
+              <div className="flex justify-center items-center gap-4 mt-8">
                 <button
                   onClick={() =>
                     setTheme((t) => (t === "dark" ? "light" : "dark"))
@@ -796,6 +787,14 @@ export default function App() {
                 >
                   {theme === "dark" ? "🌙" : "☀️"}
                 </button>
+                <div className="
+                    p-2 rounded-2xl border border-gray-300/60 dark:border-gray-700/50
+                    bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm
+                    shadow-sm flex items-center justify-center
+                  "
+                >
+                  <LanguageSwitcher />
+                </div>
               </div>
             </div>
           </div>
@@ -850,11 +849,11 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div
             className={`${
-              modal.type === "prompt" && modal.title === "İçerik Düzenle"
+              modal.type === "prompt" && modal.title === t("edit_content")
                 ? "max-w-4xl w-full mx-4 h-[80vh]"
                 : "max-w-md w-full mx-4"
             } p-6 rounded-2xl shadow-2xl border bg-white/95 dark:bg-gray-900/95 border-gray-200 dark:border-gray-800 animate-[modalIn_.25s_ease-out] ${
-              modal.type === "prompt" && modal.title === "İçerik Düzenle"
+              modal.type === "prompt" && modal.title === t("edit_content")
                 ? "flex flex-col"
                 : ""
             }`}
@@ -872,7 +871,7 @@ export default function App() {
 
             {modal.type === "prompt" && (
               <>
-                {modal.title === "İçerik Düzenle" ? (
+                {modal.title === t("edit_content") ? (
                   <textarea
                     defaultValue={modal.defaultValue}
                     className="w-full flex-1 px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none mb-4 resize-none font-mono text-sm"
@@ -907,9 +906,7 @@ export default function App() {
                 <button
                   onClick={modal.onCancel}
                   className="px-4 py-2 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                >
-                  İptal
-                </button>
+                >{t("cancel")}</button>
               )}
               <button
                 onClick={() => {
@@ -928,7 +925,7 @@ export default function App() {
                 }}
                 className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 transition-colors font-medium"
               >
-                {modal.type === "alert" ? "Tamam" : "Onayla"}
+                {modal.type === "alert" ? t("ok") : t("confirm_btn")}
               </button>
             </div>
           </div>
@@ -1050,22 +1047,10 @@ export default function App() {
                         <button
                           className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
                           onClick={async () => {
-                            const name = await showPrompt(
-                              "Kategori Düzenle",
-                              c.name || "",
-                              "Yeni kategori adı"
-                            );
+                            const name = await showPrompt(t("edit_category"), c.name || "", t("new_category_name"));
                             if (name === null) return;
-                            const sort = await showPrompt(
-                              "Sıra Düzenle",
-                              String(c.sort_order ?? 0),
-                              "Sıra (int)"
-                            );
-                            const description = await showPrompt(
-                              "Açıklama Düzenle",
-                              c.description || "",
-                              "{t('description_optional')}"
-                            );
+                            const sort = await showPrompt(t("edit_order"), String(c.sort_order ?? 0), t("order_int"));
+                            const description = await showPrompt(t("edit_description"), c.description || "", t("description_optional"));
                             updateCategory(c.id, {
                               name: name || c.name,
                               sort_order: Number(sort ?? c.sort_order),
@@ -1133,7 +1118,7 @@ export default function App() {
                 <div className="mb-10">
                   <div className="font-semibold mb-5 text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-3">
                     <div className="w-3 h-3 rounded-full bg-emerald-600" />
-                    <span>Ana Başlıklar</span>
+                    <span>{t("main_headings")}</span>
                   </div>
 
                   {h1s.length === 0 ? (
@@ -1176,22 +1161,10 @@ export default function App() {
                               <button
                                 className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-500/70 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 hover:scale-105 transition-all duration-200"
                                 onClick={async () => {
-                                  const title = await showPrompt(
-                                    "Başlık Düzenle",
-                                    h.title || "",
-                                    "Yeni başlık"
-                                  );
+                                  const title = await showPrompt(t("edit_title_modal"), h.title || "", t("new_title"));
                                   if (title === null) return;
-                                  const sort = await showPrompt(
-                                    "Sıra Düzenle",
-                                    String(h.sort_order ?? 0),
-                                    "Sıra (int)"
-                                  );
-                                  const description = await showPrompt(
-                                    "Açıklama Düzenle",
-                                    h.description || "",
-                                    "{t('description_optional')}"
-                                  );
+                                  const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
+                                  const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
                                   updateHeading(h.id, {
                                     title: title || h.title,
                                     sort_order: Number(sort ?? h.sort_order),
@@ -1236,7 +1209,7 @@ export default function App() {
                   <div className="pt-8 border-t border-gray-200/40 dark:border-gray-800/40">
                     <div className="font-semibold mb-5 text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-3">
                       <div className="w-3 h-3 rounded-full bg-emerald-700" />
-                      <span>Alt Başlıklar</span>
+                      <span>{t("sub_headings")}</span>
                     </div>
 
                     {h2s.length === 0 ? (
@@ -1264,22 +1237,10 @@ export default function App() {
                                 <button
                                   className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
                                   onClick={async () => {
-                                    const title = await showPrompt(
-                                      "Alt Başlık Düzenle",
-                                      h.title || "",
-                                      "Yeni alt başlık"
-                                    );
+                                    const title = await showPrompt(t("edit_subtitle"), h.title || "", t("new_subtitle"));
                                     if (title === null) return;
-                                    const sort = await showPrompt(
-                                      "Sıra Düzenle",
-                                      String(h.sort_order ?? 0),
-                                      "Sıra (int)"
-                                    );
-                                    const description = await showPrompt(
-                                      "Açıklama Düzenle",
-                                      h.description || "",
-                                      "{t('description_optional')}"
-                                    );
+                                    const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
+                                    const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
                                     updateHeading(h.id, {
                                       title: title || h.title,
                                       sort_order: Number(sort ?? h.sort_order),
@@ -1374,15 +1335,11 @@ export default function App() {
                       <span className="text-blue-600 dark:text-blue-400">
                         🖼️
                       </span>{" "}
-                      Resim Yönetimi
+                      {t("image_management")}
                     </div>
                     <div className="p-4 rounded-xl bg-white/50 dark:bg-gray-800/30 border border-blue-200/50 dark:border-blue-800/50">
                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                        Önce resimlerinizi yükleyin, sonra içerik yazarken{" "}
-                        <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded text-xs">
-                          &lt;--image--&gt;
-                        </code>{" "}
-                        ifadesi ile istediğiniz yere yerleştirin.
+                        {t("image_instruction")}
                       </p>
                       <ContentImageManager
                         key={selectedContent.id}
@@ -1428,40 +1385,33 @@ export default function App() {
                               )
                             }
                           >
-                            🖼️ Resimler
+                            🖼️ {t("manage_images")}
                           </button>
                           <button
                             onClick={async () => {
-                              const newBody = await showPrompt(
-                                "İçerik Düzenle",
-                                c.body,
-                                "Yeni içerik:"
-                              );
+                              const newBody = await showPrompt(t("edit_content"), c.body, t("new_content_colon"));
                               if (newBody !== null) {
                                 ContentsApi.update(c.id, { body: newBody })
                                   .then(() => {
                                     if (currentHeadingId)
                                       fetchContentsByHeading(currentHeadingId);
                                     showNotification(
-                                      "İçerik güncellendi",
+                                      t("content_updated_success"),
                                       "success"
                                     );
                                   })
                                   .catch(() =>
-                                    showNotification("Güncelleme hatası")
+                                    showNotification(t("content_update_error"))
                                   );
                               }
                             }}
                             className="px-3 py-1.5 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/50 font-medium transition-all duration-200"
                           >
-                            ✏️ Düzenle
+                            ✏️ {t("edit")}
                           </button>
                           <button
                             onClick={async () => {
-                              const confirmed = await showConfirm(
-                                "İçerik Sil",
-                                "Bu içeriği silmek istediğinizden emin misiniz?"
-                              );
+                              const confirmed = await showConfirm(t("delete_content"), t("delete_content_sure"));
                               if (confirmed) {
                                 if (selectedContent?.id === c.id) {
                                   setSelectedContent(null);
@@ -1472,18 +1422,18 @@ export default function App() {
                                     if (currentHeadingId)
                                       fetchContentsByHeading(currentHeadingId);
                                     showNotification(
-                                      "İçerik silindi",
+                                      t("content_deleted_success"),
                                       "success"
                                     );
                                   })
                                   .catch(() =>
-                                    showNotification("Silme hatası")
+                                    showNotification(t("content_delete_error"))
                                   );
                               }
                             }}
                             className="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 font-medium transition-all duration-200"
                           >
-                            🗑️ Sil
+                            🗑️ {t("delete")}
                           </button>
                         </div>
                       </div>

@@ -2,8 +2,11 @@
 
 import type React from "react";
 import { useEffect, useState, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { UUID } from "../../shared/types/models";
-import { ContentImagesApi } from "../../shared/api/admin";
+import { ContentImagesApi, AI } from "../../shared/api/admin";
 
 interface ImagePlaceholder {
   index: number;
@@ -166,17 +169,23 @@ export default function CreateContentForm({
     description?: string
   ) => void;
 }) {
-  const [body, setBody] = useState(`# Merhaba Dünya
+  const { t, i18n } = useTranslation();
+  const [body, setBody] = useState<string>(() => t("default_markdown_content"));
+  const prevLang = useRef(i18n.language);
 
-Bu bir **Markdown** içeriktir.
+  useEffect(() => {
+    if (prevLang.current !== i18n.language) {
+      const oldTr = t("default_markdown_content", { lng: "tr" });
+      const oldEn = t("default_markdown_content", { lng: "en" });
+      const oldAr = t("default_markdown_content", { lng: "ar" });
 
-- Madde 1
-- Madde 2
+      if (body === oldTr || body === oldEn || body === oldAr || body === "") {
+        setBody(t("default_markdown_content"));
+      }
+      prevLang.current = i18n.language;
+    }
+  }, [i18n.language, body, t]);
 
-\`\`\`python
-print("hello")
-\`\`\`
-`);
   const [target, setTarget] = useState<UUID | "">("");
   const [imagePlaceholders, setImagePlaceholders] = useState<
     ImagePlaceholder[]
@@ -185,6 +194,7 @@ print("hello")
     [key: number]: boolean;
   }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAiFormatting, setIsAiFormatting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [formErrors, setFormErrors] = useState<{
     body?: string;
@@ -292,6 +302,21 @@ print("hello")
     }
 
     setBody(newBody);
+  };
+
+
+  const autoFormatMarkdown = async () => {
+    if (!body.trim()) return;
+    setIsAiFormatting(true);
+    try {
+      const response = await AI.formatMarkdown(body);
+      setBody(response.markdown);
+    } catch (error) {
+      console.error("AI Error:", error);
+      alert("Yapay zeka formatter hatası. Lütfen konsolu kontrol edin.");
+    } finally {
+      setIsAiFormatting(false);
+    }
   };
 
   const insertImagePlaceholder = () => {
@@ -432,9 +457,9 @@ Bu bir **Markdown** içeriktir.
           +
         </div>
         <div>
-          <h3>Yeni İçerik Ekle</h3>
+          <h3>{t("add_new_content")}</h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 font-normal mt-0.5">
-            Markdown formatında içerik oluşturun ve resimler ekleyin
+            {t("add_content_desc")}
           </p>
         </div>
       </div>
@@ -443,7 +468,7 @@ Bu bir **Markdown** içeriktir.
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
             <span className="text-emerald-600 dark:text-emerald-400">📑</span>
-            Hedef Başlık
+            {t("target_heading")}
           </label>
           <select
             value={target}
@@ -454,7 +479,7 @@ Bu bir **Markdown** içeriktir.
                 : "border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80"
             }`}
           >
-            <option value="">Bir başlık seçin...</option>
+            <option value="">{t("select_heading")}...</option>
             {targetOptions.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
@@ -472,24 +497,38 @@ Bu bir **Markdown** içeriktir.
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
               <span className="text-emerald-600 dark:text-emerald-400">📝</span>
-              İçerik (Markdown)
+              {t("content_markdown")}
             </label>
             <div className="flex items-center gap-2">
+              {!showPreview && (
+                <button
+                  type="button"
+                  onClick={autoFormatMarkdown}
+                  disabled={isAiFormatting}
+                  className="px-3 py-1.5 text-xs rounded-lg bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors font-medium disabled:opacity-50"
+                >
+                  {isAiFormatting ? "⏳ " + t("ai_formatting") : "🪄 " + t("convert_to_markdown")}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={insertImagePlaceholder}
                 className="px-3 py-1.5 text-xs rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors font-medium"
               >
-                🖼️ Resim Ekle
+                🖼️ {t("add_image")}
               </button>
               <button
                 type="button"
                 onClick={() => setShowPreview(!showPreview)}
                 className="px-3 py-1.5 text-xs rounded-lg bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-900/50 transition-colors font-medium"
               >
-                {showPreview ? "📝 Düzenle" : "👁️ Önizle"}
+                {showPreview ? `📝 ${t("edit")}` : `👁️ ${t("preview")}`}
               </button>
             </div>
+          </div>
+
+          <div className="bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 px-3 py-2 rounded-lg text-xs leading-relaxed">
+            {t("markdown_hint")}
           </div>
 
           {!showPreview ? (
@@ -497,14 +536,7 @@ Bu bir **Markdown** içeriktir.
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={10}
-              placeholder="# Başlık
-
-Markdown içeriğinizi yazın...
-
-- Liste öğesi 1
-- Liste öğesi 2
-
-Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın."
+              placeholder={t("content_placeholder")}
               className={`w-full rounded-xl border px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 font-mono resize-none ${
                 formErrors.body
                   ? "border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-900/20"
@@ -512,13 +544,14 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
               }`}
             />
           ) : (
-            <div className="w-full min-h-[240px] rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm text-gray-900 dark:text-white">
-              <div className="prose prose-sm dark:prose-invert max-w-none">
-                {body.split("\n").map((line, i) => (
-                  <div key={i} className="whitespace-pre-wrap">
-                    {line.replace(/<--image-->/g, "🖼️ [Resim]")}
-                  </div>
-                ))}
+            <div className="w-full min-h-[240px] rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 p-6 flex flex-col">
+              <div className="mb-4 pb-3 border-b border-gray-200/60 dark:border-gray-700/50 flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 opacity-90">
+                <span className="text-base">👁️</span> {t("preview_note")}
+              </div>
+              <div className="prose prose-sm dark:prose-invert max-w-none text-gray-900 dark:text-gray-100">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {body.replace(/<--image-->/g, `\n\n> 🖼️ **[ ${t("image")} ]**\n\n`)}
+                </ReactMarkdown>
               </div>
             </div>
           )}
@@ -530,8 +563,8 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
           )}
 
           <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-            <span>{body.length} karakter</span>
-            <span>{imagePlaceholders.length} resim placeholder'ı</span>
+            <span>{body.length} {t("characters")}</span>
+            <span>{imagePlaceholders.length} {t("image_placeholders_count")}</span>
           </div>
         </div>
 
@@ -540,14 +573,14 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
                 <span className="text-blue-600 dark:text-blue-400">🖼️</span>
-                Resim Bilgileri
+                {t("image_info")}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 bg-blue-100/50 dark:bg-blue-900/20 px-2 py-1 rounded-full">
                 {
                   imagePlaceholders.filter((img) => img.url && img.isValid)
                     .length
                 }{" "}
-                / {imagePlaceholders.length} hazır
+                / {imagePlaceholders.length} {t("ready")}
               </div>
             </div>
 
@@ -563,11 +596,11 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
                         {idx + 1}
                       </div>
                       <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                        Resim #{idx + 1}
+                        {t("image_number")} {idx + 1}
                       </span>
                       {img.isValid && (
                         <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
-                          ✓ Geçerli
+                          ✓ {t("valid")}
                         </span>
                       )}
                     </div>
@@ -576,7 +609,7 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
                       onClick={() => removeImagePlaceholder(idx)}
                       className="text-red-500 hover:text-red-700 text-sm px-3 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors font-medium"
                     >
-                      🗑️ Sil
+                      🗑️ {t("delete")}
                     </button>
                   </div>
 
@@ -603,8 +636,7 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
                         />
                         <div className="mt-2 flex items-center gap-2">
                           <span className="text-xs text-gray-500 dark:text-gray-400">
-                            veya
-                          </span>
+                            {t("or")}\n                          </span>
                           <input
                             type="file"
                             accept="image/*"
@@ -616,7 +648,7 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
                             htmlFor={`file-${idx}`}
                             className="px-3 py-1.5 text-xs rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors cursor-pointer font-medium"
                           >
-                            📁 Bilgisayardan Seç
+                            📁 {t("select_from_computer")}
                           </label>
                           {img.file && (
                             <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
@@ -634,7 +666,7 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
                       </div>
                       <input
                         type="text"
-                        placeholder="Resim açıklaması (SEO ve erişilebilirlik için önerilir)"
+                        placeholder={t("image_alt_placeholder")}
                         value={img.alt}
                         onChange={(e) =>
                           updateImagePlaceholder(idx, "alt", e.target.value)
@@ -721,12 +753,12 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
           {isSubmitting ? (
             <div className="flex items-center justify-center gap-2">
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              <span>İçerik Ekleniyor...</span>
+              <span>{t("adding_content")}</span>
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2">
               <span>✨</span>
-              <span>İçerik Ekle</span>
+              <span>{t("add_content")}</span>
               {imagePlaceholders.length > 0 && (
                 <span className="text-xs opacity-80">
                   (
@@ -734,7 +766,7 @@ Resim eklemek için **Resim Ekle** butonunu kullanın veya `<--image-->` yazın.
                     imagePlaceholders.filter((img) => img.url && img.isValid)
                       .length
                   }{" "}
-                  resimle)
+                  {t("with_images")})
                 </span>
               )}
             </div>

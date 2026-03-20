@@ -177,3 +177,5 @@ export const ContentImagesApi = {
     return http.post<ContentImage>("/admin/content-images/upload", formData);
   },
 };
+
+export const AI = { formatMarkdown: (text: string) => http.post<{markdown: string}>('/admin/format-markdown', { text }) };
