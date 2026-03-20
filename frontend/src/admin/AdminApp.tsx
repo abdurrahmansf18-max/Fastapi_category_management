@@ -982,7 +982,7 @@ export default function App() {
                          shadow-lg hover:shadow-xl hover:shadow-emerald-600/50
                          hover:scale-105 transition-all duration-300"
             >
-              {theme === "dark" ? "🌙 Dark" : "☀️ Light"}
+              {theme === "dark" ? "🌙" : "☀️"}
             </button>
 
             <button
@@ -1114,7 +1114,7 @@ export default function App() {
               <div>
                 <h2>{t('headings')}</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
-                  Doküman başlıklarını ve alt başlıklarını yönetin
+                  {t("headings_desc")}
                 </p>
               </div>
             </div>
@@ -1122,10 +1122,8 @@ export default function App() {
             {!activeCat && (
               <div className="text-center py-16 text-gray-500 dark:text-gray-400">
                 <div className="text-6xl mb-4">📁</div>
-                <p className="text-lg font-medium">Önce bir kategori seçin</p>
-                <p className="text-sm">
-                  Başlıkları görüntülemek için bir kategori seçin
-                </p>
+                <p className="text-lg font-medium">{t("select_category_first")}</p>
+                <p className="text-sm">{t("select_category_to_view_headings")}</p>
               </div>
             )}
 
@@ -1355,7 +1353,7 @@ export default function App() {
               <div>
                 <h2>{t('contents')}</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
-                  Doküman içeriklerini yönetin
+                  {t("contents_desc")}
                 </p>
               </div>
             </div>
@@ -1363,10 +1361,8 @@ export default function App() {
             {!currentHeadingId && (
               <div className="text-center py-16 text-gray-500 dark:text-gray-400">
                 <div className="text-6xl mb-4">📑</div>
-                <p className="text-lg font-medium">Önce bir başlık seçin</p>
-                <p className="text-sm">
-                  İçerikleri görüntülemek için bir başlık seçin
-                </p>
+                <p className="text-lg font-medium">{t("select_heading_first")}</p>
+                <p className="text-sm">{t("select_heading_to_view_contents")}</p>
               </div>
             )}
 
@@ -1551,10 +1547,8 @@ export default function App() {
                 👤
               </div>
               <div>
-                <h2>Admin Kullanıcıları</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
-                  Admin kullanıcılarını yönetin
-                </p>
+                <h2>{t("admin_users")}</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">{t("admin_users_desc")}</p>
               </div>
             </div>
 
