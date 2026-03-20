@@ -971,10 +971,9 @@ export default function App() {
                          shadow-lg hover:shadow-emerald-600/40
                          hover:scale-105 transition-all duration-300"
             >
-              🌐 Public Site
+              🌐 {t('public_site')}
             </a>
 
-            <LanguageSwitcher />
             <LanguageSwitcher />
             <button
               onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
@@ -993,7 +992,7 @@ export default function App() {
                          bg-white/10 hover:bg-rose-500/20
                          hover:text-rose-200 hover:scale-105 transition-all duration-300"
             >
-              Çıkış
+              {t('logout')}
             </button>
           </div>
         </div>
@@ -1009,9 +1008,9 @@ export default function App() {
                 📁
               </div>
               <div>
-                <h2>Kategoriler</h2>
+                <h2>{t('categories')}</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
-                  Dokümantasyon kategorilerini yönetin
+                  {t('categories_desc')}
                 </p>
               </div>
             </div>
@@ -1065,7 +1064,7 @@ export default function App() {
                             const description = await showPrompt(
                               "Açıklama Düzenle",
                               c.description || "",
-                              "Açıklama (opsiyonel)"
+                              "{t('description_optional')}"
                             );
                             updateCategory(c.id, {
                               name: name || c.name,
@@ -1113,7 +1112,7 @@ export default function App() {
                 📑
               </div>
               <div>
-                <h2>Başlıklar</h2>
+                <h2>{t('headings')}</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
                   Doküman başlıklarını ve alt başlıklarını yönetin
                 </p>
@@ -1193,7 +1192,7 @@ export default function App() {
                                   const description = await showPrompt(
                                     "Açıklama Düzenle",
                                     h.description || "",
-                                    "Açıklama (opsiyonel)"
+                                    "{t('description_optional')}"
                                   );
                                   updateHeading(h.id, {
                                     title: title || h.title,
@@ -1281,7 +1280,7 @@ export default function App() {
                                     const description = await showPrompt(
                                       "Açıklama Düzenle",
                                       h.description || "",
-                                      "Açıklama (opsiyonel)"
+                                      "{t('description_optional')}"
                                     );
                                     updateHeading(h.id, {
                                       title: title || h.title,
@@ -1354,7 +1353,7 @@ export default function App() {
                 📝
               </div>
               <div>
-                <h2>İçerikler</h2>
+                <h2>{t('contents')}</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
                   Doküman içeriklerini yönetin
                 </p>

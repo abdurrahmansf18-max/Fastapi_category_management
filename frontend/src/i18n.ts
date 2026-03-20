@@ -4,6 +4,29 @@ import { initReactI18next } from 'react-i18next';
 const resources = {
   en: {
     translation: {
+
+      navigation: 'NAVIGATION',
+      table_of_contents: 'TABLE OF CONTENTS',
+      select_a_category: 'Select a category',
+      choose_category_desc: 'Choose a category from the navigation to get started',
+      select_a_topic: 'Select a topic',
+      choose_topic_desc: 'Choose a topic from the navigation to view content',
+      select_a_subtopic: 'Select a subtopic',
+      choose_subtopic_desc: 'Choose a subtopic from the navigation to view content',
+      admin_button: 'Admin',
+      public_site: 'Public Site',
+      dark: 'Dark',
+      logout: 'Logout',
+      categories_desc: 'Manage documentation categories',
+      headings_desc: 'Manage documentation headings',
+      contents_desc: 'Manage documentation contents',
+      category_name: 'Category Name',
+      description_optional: 'Description (optional)',
+      add_category: 'Add Category',
+      add_new_category: 'Add New Category',
+      subheading: 'Subheading',
+      no_headings_found: 'No headings found',
+
       Welcome: 'Welcome',
       Login: 'Login',
       Logout: 'Logout',
@@ -61,6 +84,29 @@ const resources = {
   },
   tr: {
     translation: {
+
+      navigation: 'NAVİGASYON',
+      table_of_contents: 'İÇİNDEKİLER',
+      select_a_category: 'Bir kategori seçin',
+      choose_category_desc: 'Başlamak için navigasyondan bir kategori seçin',
+      select_a_topic: 'Bir konu seçin',
+      choose_topic_desc: 'İçeriği görmek için navigasyondan bir konu seçin',
+      select_a_subtopic: 'Bir alt başlık seçin',
+      choose_subtopic_desc: 'İçeriği görmek için navigasyondan bir alt başlık seçin',
+      admin_button: 'Admin',
+      public_site: 'Açık Site',
+      dark: 'Karanlık',
+      logout: 'Çıkış',
+      categories_desc: 'Dokümantasyon kategorilerini yönetin',
+      headings_desc: 'Dokümantasyon başlıklarını yönetin',
+      contents_desc: 'Dokümantasyon içeriklerini yönetin',
+      category_name: 'Kategori Adı',
+      description_optional: 'Açıklama (opsiyonel)',
+      add_category: 'Kategori Ekle',
+      add_new_category: 'Yeni Kategori Ekle',
+      subheading: 'Alt başlık',
+      no_headings_found: 'Başlık bulunamadı',
+
       Welcome: 'Hoş Geldiniz',
       Login: 'Giriş Yap',
       Logout: 'Çıkış Yap',
@@ -118,6 +164,29 @@ const resources = {
   },
   ar: {
     translation: {
+
+      navigation: 'ملاحة',
+      table_of_contents: 'جدول المحتويات',
+      select_a_category: 'اختر فئة',
+      choose_category_desc: 'اختر فئة من شريط التنقل للبدء',
+      select_a_topic: 'اختر موضوعا',
+      choose_topic_desc: 'اختر موضوعا من شريط التنقل لعرض المحتوى',
+      select_a_subtopic: 'اختر موضوعا فرعيا',
+      choose_subtopic_desc: 'اختر موضوعا فرعيا من شريط التنقل لعرض المحتوى',
+      admin_button: 'المسؤول',
+      public_site: 'الموقع العام',
+      dark: 'مظلم',
+      logout: 'خروج',
+      categories_desc: 'إدارة فئات التوثيق',
+      headings_desc: 'إدارة عناوين التوثيق',
+      contents_desc: 'إدارة محتويات التوثيق',
+      category_name: 'اسم الفئة',
+      description_optional: 'وصف (اختياري)',
+      add_category: 'إضافة فئة',
+      add_new_category: 'إضافة فئة جديدة',
+      subheading: 'العنوان الفرعي',
+      no_headings_found: 'لم يتم العثور على عناوين',
+
       Welcome: 'مرحباً',
       Login: 'تسجيل الدخول',
       Logout: 'تسجيل الخروج',
@@ -175,15 +244,24 @@ const resources = {
   }
 };
 
+const savedLanguage = localStorage.getItem('appLanguage') || 'tr';
+
 i18n
   .use(initReactI18next)
   .init({
     resources,
-    lng: 'tr',
+    lng: savedLanguage,
     fallbackLng: 'en',
     interpolation: {
       escapeValue: false,
     }
   });
+
+i18n.on('languageChanged', (lng) => {
+  localStorage.setItem('appLanguage', lng);
+  document.documentElement.lang = lng;
+  // Always keep Ltr as requested by user
+  document.documentElement.dir = 'ltr';
+});
 
 export default i18n;

@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function CreateCategoryForm({
   onCreate,
 }: {
   onCreate: (name: string, description?: string) => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   return (
@@ -26,13 +28,13 @@ export default function CreateCategoryForm({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Kategori Adı"
+          placeholder={t('category_name')}
           className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
         />
         <input
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
-          placeholder="Açıklama (opsiyonel)"
+          placeholder={t('description_optional')}
           className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
         />
         <button className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02] flex items-center justify-center gap-2">
