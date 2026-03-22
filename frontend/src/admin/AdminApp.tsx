@@ -88,6 +88,11 @@ const itemCard =
   "hover:-translate-y-0.5 group";
 
 import { useSettings } from "../shared/context/SettingsContext";
+import AdminLogin from './views/AdminLogin';
+import CategoriesView from './views/CategoriesView';
+import HeadingsView from './views/HeadingsView';
+import ContentsView from './views/ContentsView';
+import AdminUsersView from './views/AdminUsersView';
 
 export default function App() {
   const { t } = useTranslation();
@@ -529,286 +534,16 @@ export default function App() {
 
   // LOGIN VIEW with enhanced styling
   if (!token) {
-    const normalizeError = (err: any): string => {
-      try {
-        const detail = err?.response?.data?.detail ?? err?.detail ?? err;
-        if (Array.isArray(detail) && detail.length) {
-          const msgs = detail.map((d: any) => d?.msg || "").filter(Boolean);
-          if (msgs.length) return msgs.join(" • ");
-        }
-        if (typeof detail === "string") return detail;
-      } catch {}
-      return "Giriş yapılamadı. Lütfen bilgilerinizi kontrol edin.";
-    };
-
     return (
-      <div
-        className={`
-          min-h-screen flex items-center justify-center relative overflow-hidden
-          bg-gradient-to-br
-          from-gray-100 via-gray-200 to-gray-300
-          dark:from-gray-950 dark:via-gray-900 dark:to-gray-800/20
-        `}
-      >
-        <div className="pointer-events-none absolute inset-0">
-          {/* Light mode enhanced glow */}
-          <div
-            className="absolute top-1/4 left-1/3 w-[800px] h-[800px]
-                          rounded-full blur-3xl bg-emerald-600/20 dark:hidden animate-pulse"
-          />
-          <div
-            className="absolute bottom-1/3 right-1/4 w-[600px] h-[600px]
-                          rounded-full blur-3xl bg-forest-600/15 dark:hidden animate-pulse"
-          />
-          <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px]
-                          rounded-full blur-3xl bg-emerald-700/10 dark:hidden"
-          />
-
-          {/* Dark mode enhanced glow */}
-          <div
-            className="hidden dark:block absolute top-1/4 left-1/3 w-[800px] h-[800px]
-                          rounded-full blur-3xl bg-emerald-600/25 animate-pulse"
-          />
-          <div
-            className="hidden dark:block absolute bottom-1/3 right-1/4 w-[600px] h-[600px]
-                          rounded-full blur-3xl bg-emerald-700/20 animate-pulse"
-          />
-          <div
-            className="hidden dark:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px]
-                          rounded-full blur-3xl bg-emerald-800/15"
-          />
-        </div>
-
-        {/* Enhanced floating particles */}
-        <div className="pointer-events-none absolute inset-0">
-          {[...Array(20)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-1 h-1 bg-lime-400/40 dark:bg-lime-400/20 rounded-full animate-pulse"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                animationDelay: `${Math.random() * 3}s`,
-                animationDuration: `${2 + Math.random() * 3}s`,
-              }}
-            />
-          ))}
-        </div>
-
-        {/* --- TOAST (ortalanmış modal) --- */}
-        {notification && (
-          <>
-            <style>{`
-              @keyframes modalIn { from { opacity:0; transform: scale(0.95) } to { opacity:1; transform: scale(1) } }
-            `}</style>
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-              <div
-                className={[
-                  "animate-[modalIn_.25s_ease-out] max-w-md w-full mx-4",
-                  "rounded-2xl shadow-2xl px-6 py-5 border backdrop-blur-md",
-                  notification.type === "error"
-                    ? "bg-red-50/95 dark:bg-red-950/90 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
-                    : notification.type === "warning"
-                    ? "bg-amber-50/95 dark:bg-amber-950/90 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200"
-                    : "bg-emerald-50/95 dark:bg-emerald-950/90 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200",
-                ].join(" ")}
-                style={{
-                  boxShadow:
-                    notification.type === "error"
-                      ? "0 20px 50px rgba(239,68,68,.35)"
-                      : notification.type === "warning"
-                      ? "0 20px 50px rgba(245,158,11,.35)"
-                      : "0 20px 50px rgba(16,185,129,.30)",
-                }}
-              >
-                <div className="flex items-center gap-4">
-                  <span className="text-2xl">
-                    {notification.type === "error"
-                      ? "⚠️"
-                      : notification.type === "warning"
-                      ? "💡"
-                      : "✅"}
-                  </span>
-                  <p className="font-medium text-base flex-1">
-                    {notification.message}
-                  </p>
-                  <button
-                    onClick={() => setNotification(null)}
-                    className="ml-2 text-xl leading-none hover:opacity-70 transition-opacity"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        <div
-          className="
-            relative z-10 w-full max-w-lg group
-            transition-all duration-500
-            hover:scale-[1.02]
-          "
-        >
-          <div
-            className="
-              rounded-3xl border
-              border-gray-200/50 dark:border-gray-800/50 p-12
-              bg-white/95 dark:bg-gray-900/90 backdrop-blur-3xl
-              shadow-[0_40px_140px_rgba(132,204,22,.20)]
-              dark:shadow-[0_40px_140px_rgba(132,204,22,.15)]
-              transition-all duration-500
-              group-hover:shadow-[0_50px_180px_rgba(132,204,22,.35)]
-              group-hover:border-lime-400/40
-              relative overflow-hidden
-            "
-          >
-            {/* Animated border gradient */}
-            <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-lime-500/20 via-emerald-500/20 to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-sm" />
-
-            <div className="relative z-10">
-              <div className="text-center mb-12">
-                <div
-                  className="
-                    inline-flex items-center justify-center w-20 h-20 rounded-3xl
-                    bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-800 mb-6 
-                    shadow-2xl shadow-emerald-700/40
-                    ring-4 ring-emerald-600/30 group-hover:scale-110 group-hover:rotate-3 
-                    transition-all duration-500 overflow-hidden
-                  "
-                >
-                  {siteLogo ? (
-                    <img src={siteLogo} alt="Site Logo" className="w-full h-full object-cover" />
-                  ) : (
-                    <FlashIcon className="w-10 h-10 text-white" />
-                  )}
-                </div>
-                <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                  {siteTitle}
-                </h1>
-                <p className="text-gray-600 dark:text-gray-400 text-base mt-2 font-medium">
-                  {t("admin_panel")}
-                </p>
-              </div>
-
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  try {
-                    await login(email, password);
-                    showNotification(t("success") || "Login successful", "success");
-                  } catch (err: any) {
-                    showNotification(t("error") || "Login failed", "error");
-                  }
-                }}
-                className="space-y-6"
-              >
-                <div className="space-y-4">
-                  <input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    type="email"
-                    placeholder={t("email_placeholder")}
-                    className="
-                      w-full rounded-2xl border border-gray-300/60 dark:border-gray-700/50
-                      bg-white/90 dark:bg-gray-800/80 px-6 py-4 text-lg
-                      text-gray-900 dark:text-gray-100 shadow-sm
-                      focus:ring-2 focus:ring-lime-500 focus:border-lime-500 outline-none
-                      transition-all duration-300 placeholder:text-gray-500
-                      hover:border-lime-400/50 hover:shadow-md hover:shadow-lime-500/10
-                    "
-                  />
-
-                  <input
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    type="password"
-                    placeholder={t("password_placeholder")}
-                    className="
-                      w-full rounded-2xl border border-gray-300/60 dark:border-gray-700/50
-                      bg-white/90 dark:bg-gray-800/80 px-6 py-4 text-lg
-                      text-gray-900 dark:text-gray-100 shadow-sm
-                      focus:ring-2 focus:ring-lime-500 focus:border-lime-500 outline-none
-                      transition-all duration-300 placeholder:text-gray-500
-                      hover:border-lime-400/50 hover:shadow-md hover:shadow-lime-500/10
-                    "
-                  />
-                </div>
-
-                <button
-                  className="
-                    w-full py-4 rounded-2xl text-white font-bold text-lg
-                    bg-gradient-to-r from-emerald-700 via-emerald-600 to-emerald-800
-                    shadow-lg hover:shadow-xl hover:shadow-emerald-700/40
-                    hover:scale-[1.02] hover:-translate-y-0.5 transition-all duration-300
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    relative overflow-hidden group
-                  "
-                  disabled={authLoading}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                  <span className="relative z-10">
-                    {authLoading ? t("loading") : `🔐 ${t("Login")}`}
-                  </span>
-                </button>
-              </form>
-
-              <div
-                className="
-                  mt-10 p-6 rounded-2xl border
-                  bg-gradient-to-br from-emerald-100/80 via-emerald-50/60 to-emerald-100/80
-                  dark:from-emerald-900/40 dark:via-emerald-950/30 dark:to-emerald-900/40
-                  border-emerald-300/60 dark:border-emerald-700/50
-                  text-emerald-900 dark:text-emerald-100 shadow-inner
-                  backdrop-blur-sm
-                "
-              >
-                <div className="flex items-start gap-4">
-                  <div className="text-2xl">🛡️</div>
-                  <div className="text-sm leading-7">
-                    <div className="font-bold text-base mb-2">
-                      {t("secure_access")}
-                    </div>
-                    <ul className="list-disc pl-5 space-y-1.5 text-emerald-800 dark:text-emerald-200">
-                      <li>{t("secure_access_desc1")}</li>
-                      <li>{t("secure_access_desc2")}</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-center items-center gap-4 mt-8">
-                <button
-                  onClick={() =>
-                    setTheme((t) => (t === "dark" ? "light" : "dark"))
-                  }
-                  className="
-                    p-4 rounded-2xl border border-gray-300/60 dark:border-gray-700/50
-                    bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm
-                    hover:bg-emerald-100 dark:hover:bg-emerald-900/30 
-                    hover:border-emerald-500/60 hover:scale-105
-                    transition-all duration-300 shadow-sm hover:shadow-md
-                    text-2xl
-                  "
-                  aria-label="Tema değiştir"
-                >
-                  {theme === "dark" ? "🌙" : "☀️"}
-                </button>
-                <div className="
-                    p-2 rounded-2xl border border-gray-300/60 dark:border-gray-700/50
-                    bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm
-                    shadow-sm flex items-center justify-center
-                  "
-                >
-                  <LanguageSwitcher />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AdminLogin
+        login={login}
+        authLoading={authLoading}
+        theme={theme}
+        setTheme={setTheme}
+        notification={notification}
+        showNotification={showNotification}
+        clearNotification={() => setNotification(null)}
+      />
     );
   }
 
@@ -1053,558 +788,65 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-10 space-y-10">
-        <section className={sectionCard}>
-          <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
-
-          <div className="relative z-10">
-            <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-                📁
-              </div>
-              <div>
-                <h2>{t('categories')}</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
-                  {t('categories_desc')}
-                </p>
-              </div>
-            </div>
-
-            {cats.length === 0 ? (
-              <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-                <div className="text-6xl mb-4">📂</div>
-                <p className="text-lg font-medium">{t("no_category_yet")}</p>
-                <p className="text-sm">{t("create_first_category")}</p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {cats.map((c) => (
-                  <div key={c.id} className={itemCard}>
-                    <div className="flex items-center gap-4 justify-between">
-                      <button
-                        className={cx(
-                          "font-bold text-left flex-1 truncate text-lg transition-all duration-300",
-                          activeCat?.id === c.id
-                            ? "text-emerald-700 dark:text-emerald-400"
-                            : "text-gray-800 dark:text-gray-200 hover:text-emerald-700 dark:hover:text-emerald-400"
-                        )}
-                        onClick={() => {
-                          setActiveCat(c);
-                          setActiveH1(null);
-                          setH2s([]);
-                          setContents([]);
-                          setCurrentHeadingId(null);
-                          fetchH1s(c.id).catch(() => {});
-                        }}
-                        title={c.name}
-                      >
-                        {c.name}
-                      </button>
-
-                      <div className="flex items-center gap-3">
-                        <button
-                          className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
-                          onClick={async () => {
-                            const name = await showPrompt(t("edit_category"), c.name || "", t("new_category_name"));
-                            if (name === null) return;
-                            const sort = await showPrompt(t("edit_order"), String(c.sort_order ?? 0), t("order_int"));
-                            const description = await showPrompt(t("edit_description"), c.description || "", t("description_optional"));
-                            updateCategory(c.id, {
-                              name: name || c.name,
-                              sort_order: Number(sort ?? c.sort_order),
-                              description: toUndef(description),
-                            }).catch(() => {});
-                          }}
-                          title={t('edit')}
-                        >
-                          ✏️
-                        </button>
-
-                        <button
-                          className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
-                          onClick={() => deleteCategory(c.id)}
-                          title={t('delete')}
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                    {c.description && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 p-3 bg-gray-50/50 dark:bg-gray-800/30 rounded-xl">
-                        {c.description}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-8">
-              <CreateCategoryForm onCreate={createCategory} />
-            </div>
-          </div>
-        </section>
+        <CategoriesView
+          cats={cats}
+          activeCat={activeCat}
+          setActiveCat={setActiveCat}
+          setActiveH1={setActiveH1}
+          setH2s={setH2s}
+          setContents={setContents}
+          setCurrentHeadingId={setCurrentHeadingId}
+          fetchH1s={fetchH1s}
+          showPrompt={showPrompt}
+          updateCategory={updateCategory}
+          deleteCategory={deleteCategory}
+          createCategory={createCategory}
+        />
 
         {/* HEADINGS */}
-        <section className={sectionCard}>
-          <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
-
-          <div className="relative z-10">
-            <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-                📑
-              </div>
-              <div>
-                <h2>{t('headings')}</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
-                  {t("headings_desc")}
-                </p>
-              </div>
-            </div>
-
-            {!activeCat && (
-              <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-                <div className="text-6xl mb-4">📁</div>
-                <p className="text-lg font-medium">{t("select_category_first")}</p>
-                <p className="text-sm">{t("select_category_to_view_headings")}</p>
-              </div>
-            )}
-
-            {activeCat && (
-              <>
-                {/* L1 Headings */}
-                <div className="mb-10">
-                  <div className="font-semibold mb-5 text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full bg-emerald-600" />
-                    <span>{t("main_headings")}</span>
-                  </div>
-
-                  {h1s.length === 0 ? (
-                    <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                      <div className="text-4xl mb-3">📄</div>
-                      <p className="text-lg font-medium">
-                        {t("no_heading_yet")}
-                      </p>
-                      <p className="text-sm">{t("create_first_heading")}</p>
-                    </div>
-                  ) : (
-                    <div className="grid gap-4">
-                      {h1s.map((h) => (
-                        <div key={h.id} className={itemCard}>
-                          <div className="flex items-center justify-between gap-4">
-                            <button
-                              className={cx(
-                                "font-bold text-left flex-1 truncate text-lg transition-all duration-300",
-                                activeH1?.id === h.id
-                                  ? "text-emerald-700 dark:text-emerald-400"
-                                  : "text-gray-800 dark:text-gray-200 hover:text-emerald-700 dark:hover:text-emerald-400"
-                              )}
-                              onClick={() => {
-                                if (activeH1?.id === h.id) {
-                                  // If same heading is clicked, don't reset anything
-                                  return;
-                                }
-                                setActiveH1(h);
-                                setH2s([]);
-                                setContents([]);
-                                setCurrentHeadingId(null);
-                                fetchH2s(h.id).catch(() => {});
-                              }}
-                              title={h.title}
-                            >
-                              {h.title}
-                            </button>
-
-                            <div className="flex items-center gap-3">
-                              <button
-                                className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-500/70 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 hover:scale-105 transition-all duration-200"
-                                onClick={async () => {
-                                  const title = await showPrompt(t("edit_title_modal"), h.title || "", t("new_title"));
-                                  if (title === null) return;
-                                  const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
-                                  const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
-                                  updateHeading(h.id, {
-                                    title: title || h.title,
-                                    sort_order: Number(sort ?? h.sort_order),
-                                    description: toUndef(description),
-                                  }).catch(() => {});
-                                }}
-                                title={t('edit')}
-                              >
-                                ✏️
-                              </button>
-
-                              <button
-                                className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
-                                onClick={() => deleteHeading(h.id)}
-                                title={t('delete')}
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </div>
-                          {h.description && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 p-3 bg-gray-50/50 dark:bg-gray-800/30 rounded-xl">
-                              {h.description}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="mt-8">
-                    {activeCat && (
-                      <CreateH1Form
-                        onCreate={(title) => createH1(activeCat.id, title)}
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {/* L2 Headings */}
-                {activeH1 && (
-                  <div className="pt-8 border-t border-gray-200/40 dark:border-gray-800/40">
-                    <div className="font-semibold mb-5 text-sm text-gray-600 dark:text-gray-400 uppercase tracking-wider flex items-center gap-3">
-                      <div className="w-3 h-3 rounded-full bg-emerald-700" />
-                      <span>{t("sub_headings")}</span>
-                    </div>
-
-                    {h2s.length === 0 ? (
-                      <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                        <div className="text-4xl mb-3">📑</div>
-                        <p className="text-lg font-medium">{t("no_subheading_yet")}</p>
-                        <p className="text-sm">{t("create_first_subheading")}</p>
-                      </div>
-                    ) : (
-                      <div className="grid gap-4">
-                        {h2s.map((h) => (
-                          <div key={h.id} className={itemCard}>
-                            <div className="flex items-center justify-between gap-4">
-                              <button
-                                className="font-bold text-left flex-1 truncate text-lg text-gray-800 dark:text-gray-200 hover:text-emerald-700 dark:hover:text-emerald-500 transition-all duration-300"
-                                title={h.title}
-                                onClick={() => {
-                                  fetchContentsByHeading(h.id).catch(() => {});
-                                }}
-                              >
-                                {h.title}
-                              </button>
-
-                              <div className="flex items-center gap-3">
-                                <button
-                                  className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
-                                  onClick={async () => {
-                                    const title = await showPrompt(t("edit_subtitle"), h.title || "", t("new_subtitle"));
-                                    if (title === null) return;
-                                    const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
-                                    const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
-                                    updateHeading(h.id, {
-                                      title: title || h.title,
-                                      sort_order: Number(sort ?? h.sort_order),
-                                      description: toUndef(description),
-                                    }).catch(() => {});
-                                  }}
-                                  title={t('edit')}
-                                >
-                                  ✏️
-                                </button>
-
-                                <button
-                                  className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
-                                  onClick={() => deleteHeading(h.id)}
-                                  title={t('delete')}
-                                >
-                                  🗑️
-                                </button>
-                              </div>
-                            </div>
-                            {h.description && (
-                              <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 p-3 bg-gray-50/50 dark:bg-gray-800/30 rounded-xl">
-                                {h.description}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="mt-8">
-                      {contents.some((c) => c.heading_id === activeH1?.id) ? (
-                        <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-800/60">
-                          <div className="flex items-center gap-3">
-                            <span className="text-amber-600 dark:text-amber-400 text-lg">
-                              ⚠️
-                            </span>
-                            <div>
-                              <p className="font-medium text-amber-800 dark:text-amber-200">
-                                Ana başlığın içeriği var
-                              </p>
-                              <p className="text-sm text-amber-700 dark:text-amber-300">
-                                Bu ana başlığa alt başlık ekleyemezsiniz çünkü
-                                zaten içerik mevcut.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <CreateH2Form
-                          onCreate={(title) => createH2(activeH1.id, title)}
-                        />
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </section>
+        <HeadingsView
+          activeCat={activeCat}
+          activeH1={activeH1}
+          setActiveH1={setActiveH1}
+          h1s={h1s}
+          h2s={h2s}
+          setH2s={setH2s}
+          setContents={setContents}
+          contents={contents}
+          setCurrentHeadingId={setCurrentHeadingId}
+          fetchH2s={fetchH2s}
+          fetchContentsByHeading={fetchContentsByHeading}
+          showPrompt={showPrompt}
+          updateHeading={updateHeading}
+          deleteHeading={deleteHeading}
+          createH1={createH1}
+          createH2={createH2}
+        />
 
         {/* CONTENTS */}
-        <section className={sectionCard}>
-          <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
-
-          <div className="relative z-10">
-            <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-                📝
-              </div>
-              <div>
-                <h2>{t('contents')}</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
-                  {t("contents_desc")}
-                </p>
-              </div>
-            </div>
-
-            {!currentHeadingId && (
-              <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-                <div className="text-6xl mb-4">📑</div>
-                <p className="text-lg font-medium">{t("select_heading_first")}</p>
-                <p className="text-sm">{t("select_heading_to_view_contents")}</p>
-              </div>
-            )}
-
-            {currentHeadingId && (
-              <>
-                {selectedContent && (
-                  <div className="mb-8 p-6 rounded-2xl bg-gradient-to-br from-blue-50/80 to-indigo-100/80 dark:from-blue-900/20 dark:to-indigo-900/20 border border-dashed border-blue-300/60 dark:border-blue-700/60 backdrop-blur-sm">
-                    <div className="font-semibold mb-4 text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                      <span className="text-blue-600 dark:text-blue-400">
-                        🖼️
-                      </span>{" "}
-                      {t("image_management")}
-                    </div>
-                    <div className="p-4 rounded-xl bg-white/50 dark:bg-gray-800/30 border border-blue-200/50 dark:border-blue-800/50">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                        {t("image_instruction")}
-                      </p>
-                      <ContentImageManager
-                        key={selectedContent.id}
-                        contentId={selectedContent.id}
-                        onNotification={showNotification}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid gap-4">
-                  {contents.map((c) => (
-                    <div key={c.id} className={itemCard}>
-                      <div className="flex items-center justify-between gap-4">
-                        <button
-                          className={cx(
-                            "font-bold text-left flex-1 truncate text-lg transition-all duration-300",
-                            selectedContent?.id === c.id
-                              ? "text-emerald-700 dark:text-emerald-400"
-                              : "text-gray-800 dark:text-gray-200 hover:text-emerald-700 dark:hover:text-emerald-400"
-                          )}
-                          onClick={() =>
-                            setSelectedContent(
-                              selectedContent?.id === c.id ? null : c
-                            )
-                          }
-                          title={c.body}
-                        >
-                          {c.body.substring(0, 50)}...
-                        </button>
-
-                        <div className="flex items-center gap-3">
-                          <button
-                            className={cx(
-                              "px-3 py-1.5 text-xs rounded-lg font-medium transition-all duration-200",
-                              selectedContent?.id === c.id
-                                ? "bg-blue-500 text-white"
-                                : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50"
-                            )}
-                            onClick={() =>
-                              setSelectedContent(
-                                selectedContent?.id === c.id ? null : c
-                              )
-                            }
-                          >
-                            🖼️ {t("manage_images")}
-                          </button>
-                          <button
-                            onClick={async () => {
-                              const newBody = await showPrompt(t("edit_content"), c.body, t("new_content_colon"));
-                              if (newBody !== null) {
-                                ContentsApi.update(c.id, { body: newBody })
-                                  .then(() => {
-                                    if (currentHeadingId)
-                                      fetchContentsByHeading(currentHeadingId);
-                                    showNotification(
-                                      t("content_updated_success"),
-                                      "success"
-                                    );
-                                  })
-                                  .catch(() =>
-                                    showNotification(t("content_update_error"))
-                                  );
-                              }
-                            }}
-                            className="px-3 py-1.5 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/50 font-medium transition-all duration-200"
-                          >
-                            ✏️ {t("edit")}
-                          </button>
-                          <button
-                            onClick={async () => {
-                              const confirmed = await showConfirm(t("delete_content"), t("delete_content_sure"));
-                              if (confirmed) {
-                                if (selectedContent?.id === c.id) {
-                                  setSelectedContent(null);
-                                }
-
-                                ContentsApi.remove(c.id)
-                                  .then(() => {
-                                    if (currentHeadingId)
-                                      fetchContentsByHeading(currentHeadingId);
-                                    showNotification(
-                                      t("content_deleted_success"),
-                                      "success"
-                                    );
-                                  })
-                                  .catch(() =>
-                                    showNotification(t("content_delete_error"))
-                                  );
-                              }
-                            }}
-                            className="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 font-medium transition-all duration-200"
-                          >
-                            🗑️ {t("delete")}
-                          </button>
-                        </div>
-                      </div>
-                      {c.description && (
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 p-3 bg-gray-50/50 dark:bg-gray-800/30 rounded-xl">
-                          {c.description}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div className="mt-8">
-              {(activeH1 || currentHeadingId) && contents.length === 0 && (
-                <CreateContentForm
-                  targetOptions={
-                    currentHeadingId
-                      ? // Eğer bir başlık seçildiyse sadece o başlığı göster
-                        [
-                          ...h1s
-                            .filter((h) => h.id === currentHeadingId)
-                            .map((h) => ({ id: h.id, label: `📄 ${h.title}` })),
-                          ...h2s
-                            .filter((h) => h.id === currentHeadingId)
-                            .map((h) => ({ id: h.id, label: `📑 ${h.title}` })),
-                        ]
-                      : // Değilse tüm başlıkları göster ama mantığa göre filtrele
-                        [
-                          // Ana başlık seçildiyse ve alt başlık yoksa ana başlığı göster
-                          ...(activeH1 && h2s.length === 0
-                            ? [
-                                {
-                                  id: activeH1.id,
-                                  label: `📄 ${activeH1.title}`,
-                                },
-                              ]
-                            : []),
-                          // Alt başlıklar varsa onları göster
-                          ...h2s.map((h) => ({
-                            id: h.id,
-                            label: `📑 ${h.title}`,
-                          })),
-                        ]
-                  }
-                  onCreate={createContent}
-                />
-              )}
-            </div>
-          </div>
-        </section>
+        <ContentsView
+          currentHeadingId={currentHeadingId}
+          selectedContent={selectedContent}
+          setSelectedContent={setSelectedContent}
+          showNotification={showNotification}
+          contents={contents}
+          activeH1={activeH1}
+          h1s={h1s}
+          h2s={h2s}
+          fetchContentsByHeading={fetchContentsByHeading}
+          showPrompt={showPrompt}
+          showConfirm={showConfirm}
+          createContent={createContent}
+        />
 
         {/* ADMIN USERS */}
-        <section className={sectionCard}>
-          <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
-
-          <div className="relative z-10">
-            <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-                👤
-              </div>
-              <div>
-                <h2>{t("admin_users")}</h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">{t("admin_users_desc")}</p>
-              </div>
-            </div>
-
-            {admins.length === 0 ? (
-              <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-                <div className="text-6xl mb-4">👤</div>
-                <p className="text-lg font-medium">{t("no_admin_yet")}</p>
-                <p className="text-sm">{t("create_first_admin")}</p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {admins.map((a) => (
-                  <div key={a.id} className={itemCard}>
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="font-bold text-left flex-1 truncate text-lg text-gray-800 dark:text-gray-200">
-                        {a.email}
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <button
-                          className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
-                          onClick={() => changeAdminPassword(a.id)}
-                          title="Şifre Değiştir"
-                        >
-                          🔒
-                        </button>
-
-                        <button
-                          className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
-                          onClick={() => deleteAdmin(a.id)}
-                          title={t('delete')}
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-8">
-              <CreateAdminForm
-                onCreate={createAdmin}
-                showNotification={showNotification}
-              />
-            </div>
-          </div>
-        </section>
+        <AdminUsersView
+          admins={admins}
+          changeAdminPassword={changeAdminPassword}
+          deleteAdmin={deleteAdmin}
+          createAdmin={createAdmin}
+          showNotification={showNotification}
+        />
       </main>
     </div>
   );

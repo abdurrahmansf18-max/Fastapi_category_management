@@ -4,6 +4,8 @@ import { initReactI18next } from 'react-i18next';
 const resources = {
   en: {
     translation: {
+      h1_has_content: "Main heading has content",
+      h1_has_content_desc: "You cannot add subheadings to this main heading because it already has content.",
       tip_1: "Create rich content using Markdown format",
       tip_2_1: "Use the",
       tip_2_2: "tag to insert images",
@@ -205,6 +207,8 @@ admin_button: 'Admin',
   },
   tr: {
     translation: {
+      h1_has_content: "Ana başlığın içeriği var",
+      h1_has_content_desc: "Bu ana başlığa alt başlık ekleyemezsiniz çünkü zaten içerik mevcut.",
       tip_1: "Markdown formatını kullanarak zengin içerik oluşturun",
       tip_2_1: "Resim eklemek için",
       tip_2_2: "etiketini kullanın",
@@ -405,6 +409,8 @@ admin_button: 'Admin',
   },
   ar: {
     translation: {
+      h1_has_content: "العنوان الرئيسي يحتوي على محتوى",
+      h1_has_content_desc: "لا يمكنك إضافة عناوين فرعية لهذا العنوان الرئيسي لأنه يحتوي على محتوى بالفعل.",
       tip_1: "قم بإنشاء محتوى غني باستخدام تنسيق Markdown",
       tip_2_1: "استخدم علامة",
       tip_2_2: "لإدراج الصور",
