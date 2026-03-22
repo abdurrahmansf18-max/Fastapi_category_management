@@ -559,3 +559,26 @@ Metin:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# ---- Site Settings ----
+from app.schemas import SiteSettingsUpdate
+
+@admin_router.put("/settings")
+async def update_site_settings(payload: SiteSettingsUpdate, _=Depends(get_current_admin)):
+    if payload.site_title is not None:
+        await execute("INSERT INTO site_setting (key, value) VALUES ('site_title', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.site_title})
+    if payload.site_logo is not None:
+        await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.site_logo})
+    return {"message": "Settings updated"}
+
+@admin_router.post("/settings/logo")
+async def upload_site_logo(request: Request, file: UploadFile = File(...), _=Depends(get_current_admin)):
+    try:
+        _, public_url = await storage.save_image(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    abs_url = _abs_url(request, public_url)
+    await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": abs_url})
+    return {"site_logo": abs_url}

@@ -120,7 +120,7 @@ function ResizableImagePreview({
             ? URL.createObjectURL(image.file)
             : image.url || "/placeholder.svg"
         }
-        alt={image.alt || `Resim ${image.index + 1}`}
+        alt={image.alt || ` `}
         className="w-full h-full object-cover rounded"
         draggable={false}
         style={{
@@ -682,7 +682,7 @@ Bu bir **Markdown** içeriktir.
                             <div className="w-full h-full flex items-center justify-center text-blue-600 dark:text-blue-400 aspect-video">
                               <div className="text-center">
                                 <div className="w-6 h-6 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin mx-auto mb-2"></div>
-                                <div className="text-xs">Yükleniyor...</div>
+                                <div className="text-xs">{t("loading")}</div>
                               </div>
                             </div>
                           ) : !imagePreviewErrors[idx] ? (
@@ -696,7 +696,7 @@ Bu bir **Markdown** içeriktir.
                             <div className="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-600 text-xs aspect-video">
                               <div className="text-center">
                                 <div className="text-2xl mb-1">⚠️</div>
-                                <div>Resim yüklenemedi</div>
+                                <div>{t('image_could_not_be_loaded')}</div>
                               </div>
                             </div>
                           )}
@@ -706,7 +706,7 @@ Bu bir **Markdown** içeriktir.
                         <div className="aspect-video rounded-lg bg-gray-100 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center">
                           <div className="text-center text-gray-400 dark:text-gray-600 text-xs">
                             <div className="text-2xl mb-1">📷</div>
-                            <div>Önizleme</div>
+                            <div>{t("preview")}</div>
                           </div>
                         </div>
                       )}
@@ -722,19 +722,19 @@ Bu bir **Markdown** içeriktir.
           <div className="text-sm text-emerald-800 dark:text-emerald-200">
             <div className="font-medium mb-2 flex items-center gap-2">
               <span>💡</span>
-              Kullanım İpuçları
+              {t("usage_tips")}
             </div>
             <ul className="space-y-1 text-xs text-emerald-700 dark:text-emerald-300">
-              <li>• Markdown formatını kullanarak zengin içerik oluşturun</li>
+              <li>• {t("tip_1")}</li>
               <li>
-                • Resim eklemek için{" "}
+                • {t('tip_2_1')}{" "}
                 <code className="bg-emerald-200 dark:bg-emerald-800 px-1 rounded">
                   &lt;--image--&gt;
                 </code>{" "}
-                ifadesini kullanın
+                {t('tip_2_2')}
               </li>
-              <li>• Resimler içerikte sırasıyla görüntülenecektir</li>
-              <li>• Alt metin eklemek SEO ve erişilebilirlik için önemlidir</li>
+              <li>• {t("tip_3")}</li>
+              <li>• {t("tip_4")}</li>
             </ul>
           </div>
         </div>

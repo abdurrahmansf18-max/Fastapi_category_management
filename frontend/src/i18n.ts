@@ -4,6 +4,19 @@ import { initReactI18next } from 'react-i18next';
 const resources = {
   en: {
     translation: {
+      tip_1: "Create rich content using Markdown format",
+      tip_2_1: "Use the",
+      tip_2_2: "tag to insert images",
+      tip_3: "Images will be displayed sequentially in the content",
+      tip_4: "Adding alt text is important for SEO and accessibility",
+
+      no_heading_yet: "No heading in this category",
+      create_first_heading: "Create your first heading",
+      no_subheading_yet: "No subheading yet",
+      create_first_subheading: "Create your first subheading",
+      usage_tips: "Usage Tips",
+      no_admin_yet: "No admin user yet",
+
 
       navigation: 'NAVIGATION',
       table_of_contents: 'TABLE OF CONTENTS',
@@ -192,6 +205,19 @@ admin_button: 'Admin',
   },
   tr: {
     translation: {
+      tip_1: "Markdown formatını kullanarak zengin içerik oluşturun",
+      tip_2_1: "Resim eklemek için",
+      tip_2_2: "etiketini kullanın",
+      tip_3: "Resimler içerikte sırasıyla görüntülenecektir",
+      tip_4: "Alt metin eklemek SEO ve erişilebilirlik için önemlidir",
+
+      no_heading_yet: "Bu kategoride henüz başlık yok",
+      create_first_heading: "İlk başlığınızı oluşturun",
+      no_subheading_yet: "Henüz alt başlık yok",
+      create_first_subheading: "İlk alt başlığınızı oluşturun",
+      usage_tips: "Kullanım İpuçları",
+      no_admin_yet: "Henüz admin yetkilisi yok",
+
 
       navigation: 'NAVİGASYON',
       table_of_contents: 'İÇİNDEKİLER',
@@ -379,6 +405,19 @@ admin_button: 'Admin',
   },
   ar: {
     translation: {
+      tip_1: "قم بإنشاء محتوى غني باستخدام تنسيق Markdown",
+      tip_2_1: "استخدم علامة",
+      tip_2_2: "لإدراج الصور",
+      tip_3: "سيتم عرض الصور بالتسلسل في المحتوى",
+      tip_4: "إضافة النص البديل مهم لتحسين محركات البحث وسهولة الوصول",
+
+      no_heading_yet: "لا توجد عناوين في هذه الفئة",
+      create_first_heading: "أنشئ عنوانك الأول",
+      no_subheading_yet: "لا يوجد عنوان فرعي حتى الآن",
+      create_first_subheading: "أنشئ عنوانك الفرعي الأول",
+      usage_tips: "نصائح الاستخدام",
+      no_admin_yet: "لا يوجد مسؤول حتى الآن",
+
 
       navigation: 'ملاحة',
       table_of_contents: 'جدول المحتويات',

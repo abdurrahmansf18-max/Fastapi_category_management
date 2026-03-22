@@ -12,6 +12,7 @@ import { slugify } from "../shared/utils/slug";
 import ContentBody from "./components/ContentBody";
 import Empty from "./components/Empty";
 import { Link, useNavigate } from "react-router-dom";
+import { useSettings } from "../shared/context/SettingsContext";
 
 import type { UUID } from "../shared/types/models";
 import type {
@@ -25,6 +26,7 @@ import type {
 
 export default function App() {
   const { t } = useTranslation();
+  const { siteTitle, siteLogo } = useSettings();
 
   const navigate = useNavigate();
   // theme
@@ -319,8 +321,13 @@ export default function App() {
             <span className="text-lg">☰</span>
           </button>
 
-          <div className="font-bold text-3xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 bg-clip-text text-transparent drop-shadow-sm">
-            ⚡ Fastapi
+          <div className="font-bold text-3xl flex items-center gap-3 bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 bg-clip-text text-transparent drop-shadow-sm">
+            {siteLogo ? (
+              <img src={siteLogo} alt="Site Logo" className="w-8 h-8 md:w-10 md:h-10 object-contain" />
+            ) : (
+              <span>⚡</span>
+            )}
+            {siteTitle}
           </div>
 
           <nav className="hidden md:flex items-center gap-2 ml-8">

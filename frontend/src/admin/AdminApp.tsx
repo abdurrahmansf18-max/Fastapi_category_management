@@ -48,6 +48,8 @@ import type {
   AdminUser,
 } from "../shared/types/models";
 
+import { AdminSettingsApi } from "../shared/api/admin";
+
 interface TempImageData {
   url: string;
   alt: string;
@@ -85,8 +87,11 @@ const itemCard =
   "hover:ring-2 hover:ring-emerald-700/50 hover:border-emerald-700/70 " +
   "hover:-translate-y-0.5 group";
 
+import { useSettings } from "../shared/context/SettingsContext";
+
 export default function App() {
   const { t } = useTranslation();
+  const { siteTitle, siteLogo, reload: reloadSettings } = useSettings();
 
   // theme
   const [theme, setTheme] = useState<"light" | "dark">(
@@ -671,13 +676,17 @@ export default function App() {
                     bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-800 mb-6 
                     shadow-2xl shadow-emerald-700/40
                     ring-4 ring-emerald-600/30 group-hover:scale-110 group-hover:rotate-3 
-                    transition-all duration-500
+                    transition-all duration-500 overflow-hidden
                   "
                 >
-                  <FlashIcon className="w-10 h-10 text-white" />
+                  {siteLogo ? (
+                    <img src={siteLogo} alt="Site Logo" className="w-full h-full object-cover" />
+                  ) : (
+                    <FlashIcon className="w-10 h-10 text-white" />
+                  )}
                 </div>
                 <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                  Fastapi
+                  {siteTitle}
                 </h1>
                 <p className="text-gray-600 dark:text-gray-400 text-base mt-2 font-medium">
                   {t("admin_panel")}
@@ -939,23 +948,71 @@ export default function App() {
           <div className="flex items-center gap-4 group">
             <div className="relative">
               <div className="absolute inset-0 rounded-3xl blur-xl bg-emerald-600/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="relative inline-flex items-center justify-center w-14 h-14 rounded-3xl bg-gradient-to-br from-emerald-700 to-emerald-800 ring-2 ring-emerald-600/40 shadow-xl group-hover:scale-105 group-hover:rotate-3 transition-all duration-300">
-                <svg viewBox="0 0 48 48" className="w-8 h-8">
-                  <path
-                    d="M8 30c6-5 13-8 20-8l6 4c-7 0-12 2-18 7l-8-3zM20 14l6-3 12 8-7-1c-4-3-7-4-11-4z"
-                    fill="white"
-                  />
-                </svg>
+              <div className="relative inline-flex items-center justify-center w-14 h-14 rounded-3xl bg-gradient-to-br from-emerald-700 to-emerald-800 ring-2 ring-emerald-600/40 shadow-xl group-hover:scale-105 group-hover:rotate-3 transition-all duration-300 overflow-hidden">
+                {siteLogo ? (
+                  <img src={siteLogo} alt="Site Logo" className="w-full h-full object-cover" />
+                ) : (
+                  <svg viewBox="0 0 48 48" className="w-8 h-8">
+                    <path
+                      d="M8 30c6-5 13-8 20-8l6 4c-7 0-12 2-18 7l-8-3zM20 14l6-3 12 8-7-1c-4-3-7-4-11-4z"
+                      fill="white"
+                    />
+                  </svg>
+                )}
               </div>
             </div>
 
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">
-                Fastapi
-              </h1>
-              <p className="text-xs text-emerald-300 -mt-0.5 font-medium">
-                Admin Dashboard
-              </p>
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+                  {siteTitle}
+                </h1>
+                <p className="text-xs text-emerald-300 -mt-0.5 font-medium">
+                  Admin Dashboard
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  const newTitle = await showPrompt(t('site_title_prompt') || 'Site Title', siteTitle);
+                  if (newTitle && newTitle !== siteTitle) {
+                    try {
+                      await AdminSettingsApi.updateSettings({ site_title: newTitle });
+                      reloadSettings();
+                      showNotification(t('site_title_success') || 'Site title updated!', 'success');
+                    } catch (e) {
+                      showNotification(t('site_title_error') || 'Error updating site title', 'error');
+                    }
+                  }
+                  
+                  // Ask for logo change
+                  const uploadLogo = await showPrompt(t('upload_logo_prompt') || 'Upload Logo?', 'yes', t('upload_logo_desc') || 'Type "yes" to upload a new logo next');
+                  if (uploadLogo?.toLowerCase() === 'yes') {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'image/*';
+                    input.onchange = async (e: any) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      try {
+                        await AdminSettingsApi.uploadSiteLogo(formData);
+                        reloadSettings();
+                        showNotification(t('site_logo_success') || 'Site logo updated!', 'success');
+                      } catch (err) {
+                        showNotification(t('site_logo_error') || 'Error updating site logo', 'error');
+                      }
+                    };
+                    input.click();
+                  }
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-emerald-300 hover:text-white transition-colors"
+                title={t('edit_site_title_logo') || "Edit Site Title & Logo"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.89 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.89l3.4-3.4M16.862 4.487L19.5 7.125" />
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -1015,8 +1072,8 @@ export default function App() {
             {cats.length === 0 ? (
               <div className="text-center py-16 text-gray-500 dark:text-gray-400">
                 <div className="text-6xl mb-4">📂</div>
-                <p className="text-lg font-medium">Henüz kategori yok</p>
-                <p className="text-sm">İlk kategorinizi oluşturun</p>
+                <p className="text-lg font-medium">{t("no_category_yet")}</p>
+                <p className="text-sm">{t("create_first_category")}</p>
               </div>
             ) : (
               <div className="grid gap-4">
@@ -1125,9 +1182,9 @@ export default function App() {
                     <div className="text-center py-12 text-gray-500 dark:text-gray-400">
                       <div className="text-4xl mb-3">📄</div>
                       <p className="text-lg font-medium">
-                        Bu kategoride başlık yok
+                        {t("no_heading_yet")}
                       </p>
-                      <p className="text-sm">İlk başlığınızı oluşturun</p>
+                      <p className="text-sm">{t("create_first_heading")}</p>
                     </div>
                   ) : (
                     <div className="grid gap-4">
@@ -1215,8 +1272,8 @@ export default function App() {
                     {h2s.length === 0 ? (
                       <div className="text-center py-12 text-gray-500 dark:text-gray-400">
                         <div className="text-4xl mb-3">📑</div>
-                        <p className="text-lg font-medium">Alt başlık yok</p>
-                        <p className="text-sm">İlk alt başlığınızı oluşturun</p>
+                        <p className="text-lg font-medium">{t("no_subheading_yet")}</p>
+                        <p className="text-sm">{t("create_first_subheading")}</p>
                       </div>
                     ) : (
                       <div className="grid gap-4">
@@ -1505,8 +1562,8 @@ export default function App() {
             {admins.length === 0 ? (
               <div className="text-center py-16 text-gray-500 dark:text-gray-400">
                 <div className="text-6xl mb-4">👤</div>
-                <p className="text-lg font-medium">Henüz admin kullanıcı yok</p>
-                <p className="text-sm">İlk admin kullanıcıyı oluşturun</p>
+                <p className="text-lg font-medium">{t("no_admin_yet")}</p>
+                <p className="text-sm">{t("create_first_admin")}</p>
               </div>
             ) : (
               <div className="grid gap-4">
