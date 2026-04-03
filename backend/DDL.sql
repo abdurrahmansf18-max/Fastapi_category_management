@@ -308,3 +308,10 @@ CREATE INDEX IF NOT EXISTS idx_content_image_order
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_content_image_sort
   ON content_image(content_id, sort_order);
+CREATE TABLE public.site_setting (
+    key public.citext PRIMARY KEY,
+    value text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+INSERT INTO public.site_setting (key, value) VALUES ('site_title', 'Fastapi') ON CONFLICT DO NOTHING;

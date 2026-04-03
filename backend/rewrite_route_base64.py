@@ -1,0 +1,25 @@
+﻿import base64
+import os
+file_path = 'C:/Users/abdur/Desktop/Fullstack/Fastapi/backend/app/routers/admin.py'
+with open(file_path, 'r', encoding='utf-8') as f:
+    text = f.read()
+
+idx = text.find('@admin_router.post("/format-markdown")')
+idx2 = text.find('class FormatMarkdownRequest(BaseModel):')
+if idx2 != -1 and idx2 < (idx if idx != -1 else len(text)):
+    idx = idx2
+
+idx3 = text.find('import google.generativeai as genai')
+if idx3 != -1 and idx3 < (idx if idx != -1 else len(text)):
+    idx = idx3
+
+if idx != -1:
+    text = text[:idx]
+
+payload = "aW1wb3J0IG9zCmltcG9ydCBnb29nbGUuZ2VuZXJhdGl2ZWFpIGFzIGdlbmFpCmZyb20gcHlkYW50aWMgaW1wb3J0IEJhc2VNb2RlbAoKY2xhc3MgRm9ybWF0TWFya2Rvd25SZXF1ZXN0KEJhc2VNb2RlbSk6CiAgICB0ZXh0OiBzdHIKCUBhZG1pbl9yb3V0ZXIucG9zdCgiL2Zvcm1hdC1tYXJrZG93biIpCmFzeW5jIGRlZiBmb3JtYXRfbWFya2Rvd24ocmVxOiBGb3JtYXRNYXJrZG93blJlcXVlc3QsIF86IGRpY3QgPSBEZXBlbmRzKGdldF9jdXJyZW50X2FkbWluKSk6CiAgICBhcGlfa2V5ID0gb3MuZ2V0ZW52KCJHRU1JTklfQVBJX0tFWSIpCiAgICBpZiBub3QgYXBpX2tleToKICAgICAgICByYWlzZSBIVFRQRXhjZXB0aW9uKHN0YXR1c19jb2RlPTUwMCwgZGV0YWlsPSJHRU1JTklfQVBJX0tFWSBpcyBub3QgY29uZmlndXJlZCBvbiBzZXJ2ZXIiKQogICAgdHJ5OgogICAgICAgIGdlbmFpLmNvbmZpZ3VyZShhcGlfa2V5PWFwaV9rZXkpCiAgICAgICAgbW9kZWwgPSBnZW5haS5HZW5lcmF0aXZlTW9kZWwoImdlbWluaS0yLjUtZmxhc2giKQogICAgICAgIHByb21wdCA9IGYiIiJTZW4gcHJvZmVzeW9uZWwgYmlyIE1hcmtkb3duIGZvcm1hdGxhecSxY8Sxc8Sxc8Sxbi4gU2FuYSB2ZXJpbGVuIG1ldG5pIHplbmdpbiBNYXJrZG93biBmb3JtYXTEsW5hIMOnZXZpci4KCkt1cmFsbGFyOgoxLiBLb2QgcGFyw6dhbGFyxLFuxLEgKGBgYHB5dGhvbiB2Yi4pIGF5bsSxIMWfZWtpbGRlIGtvcnUuCjIuIExpc3RlbGVyaSAoLSwgMS4pIGF5bsSxIMWfZWtpbGRlIGFsdCBhbHRhIGtvcnUuCjMuIEJhc8WfbMSxa2xhcsSxICgjKSB1eWd1biDFn2VraWxkZSBrb3J1Lgo0LiBQYXJhZ3JhZmxhcsSxIGJvem1hLCBzYXTEsXIgYXJhc8SxIGJvxZ9sdWsgS295Lgo1LiBTYWRlY2UgTWFya2Rvd24ga29kdW51IGTDtm5kw7xyLCBiYcWfdGFraSB2ZSBzb25kYWtpIGHDp8Sxa2xhecSxY8SxbWFya2Rvd24gaWJhcmVsZXJpbmkgYWxtYS4KCk1ldGluOgp7cmVxLnRleHR9IiIiCiAgICAgICAgcmVzcG9uc2UgPSBtb2RlbC5nZW5lcmF0ZV9jb250ZW50KHByb21wdCkKICAgICAgICB0ZXh0ID0gcmVzcG9uc2UudGV4dAogICAgICAgIGlmIHRleHQuc3RhcnRzd2l0aCgiYGBgbWFya2Rvd24iKSBhbmQgdGV4dC5lbmRzd2l0aCgiYGBgIik6CiAgICAgICAgICAgIHRleHQgPSB0ZXh0WzExOi0zXS5zdHJpcCgpCiAgICAgICAgZWxpZiB0ZXh0LnN0YXJ0c3dpdGgoImBgYCIpIGFuZCB0ZXh0LmVuZHN3aXRoKCJgYGAiKToKICAgICAgICAgICAgdGV4dCA9IHRleHRbMzotM10uc3RyaXAoKQogICAgICAgIHJldHVybiB7Im1hcmtkb3duIjogdGV4dH0KICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgICAgICByYWlzZSBIVFRQRXhjZXB0aW9uKHN0YXR1c19jb2RlPTUwMCwgZGV0YWlsPXN0cihlKSkK"
+code_str = base64.b64decode(payload).decode('utf-8')
+
+with open(file_path, 'w', encoding='utf-8') as f:
+    f.write(text.strip() + '\n\n' + code_str + '\n')
+
+print("DONE FIXING!")

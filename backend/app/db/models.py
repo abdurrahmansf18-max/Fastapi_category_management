@@ -170,3 +170,9 @@ Index(
     postgresql_using="gin",
     postgresql_ops={content.c.description.key: "gin_trgm_ops"},
 )
+site_setting = Table(
+    "site_setting", metadata,
+    Column("key", CITEXT, primary_key=True),
+    Column("value", Text, nullable=False),
+    Column("updated_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
+)

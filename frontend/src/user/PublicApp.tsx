@@ -12,6 +12,7 @@ import { slugify } from "../shared/utils/slug";
 import ContentBody from "./components/ContentBody";
 import Empty from "./components/Empty";
 import { Link, useNavigate } from "react-router-dom";
+import { useSettings } from "../shared/context/SettingsContext";
 
 import type { UUID } from "../shared/types/models";
 import type {
@@ -25,6 +26,7 @@ import type {
 
 export default function App() {
   const { t } = useTranslation();
+  const { siteTitle, siteLogo } = useSettings();
 
   const navigate = useNavigate();
   // theme
@@ -319,8 +321,13 @@ export default function App() {
             <span className="text-lg">☰</span>
           </button>
 
-          <div className="font-bold text-3xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 bg-clip-text text-transparent drop-shadow-sm">
-            ⚡ Fastapi
+          <div className="font-bold text-3xl flex items-center gap-3 bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 bg-clip-text text-transparent drop-shadow-sm">
+            {siteLogo ? (
+              <img src={siteLogo} alt="Site Logo" className="w-8 h-8 md:w-10 md:h-10 object-contain" />
+            ) : (
+              <span>⚡</span>
+            )}
+            {siteTitle}
           </div>
 
           <nav className="hidden md:flex items-center gap-2 ml-8">
@@ -428,7 +435,7 @@ export default function App() {
             className="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 
              text-white text-sm font-semibold shadow-lg shadow-emerald-600/30 transition-all duration-300 hover:scale-105"
           >
-            🔒 Admin
+            🔒 {t('admin_button')}
           </a>
 
           <div className="flex items-center gap-4">
@@ -524,15 +531,15 @@ export default function App() {
         <section className="min-h-[60vh]">
           {!activeCat && (
             <Empty
-              title="Select a category"
-              subtitle="Choose a category from the navigation to get started"
+              title={t("select_a_category")}
+              subtitle={t("choose_category_desc")}
               icon="📂"
             />
           )}
           {activeCat && !activeH1 && (
             <Empty
-              title="Select a topic"
-              subtitle="Choose a topic from the navigation to view content"
+              title={t("select_a_topic")}
+              subtitle={t("choose_topic_desc")}
               icon="📑"
             />
           )}
@@ -542,8 +549,8 @@ export default function App() {
             !activeH2 &&
             !page && (
               <Empty
-                title="Select a subtopic"
-                subtitle="Choose a subtopic from the navigation to view content"
+                title={t("select_a_subtopic")}
+                subtitle={t("choose_subtopic_desc")}
                 icon="📋"
               />
             )}
@@ -617,7 +624,7 @@ export default function App() {
                   onClick={() => setMobileNavOpen((s) => !s)}
                   className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold"
                 >
-                  <span>Navigation</span>
+                    <span>{t('navigation')}</span>
                   <span className="text-emerald-600">{mobileNavOpen ? "▾" : "▸"}</span>
                 </button>
                 {mobileNavOpen && (
@@ -641,13 +648,13 @@ export default function App() {
                 onClick={() => setMobileTocOpen((s) => !s)}
                 className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold"
               >
-                <span>Table of contents</span>
+                <span>{t('table_of_contents')}</span>
                 <span className="text-emerald-600">{mobileTocOpen ? "▾" : "▸"}</span>
               </button>
               {mobileTocOpen && (
                 <div className="px-2 pb-3 text-sm">
                   {toc.length === 0 && (
-                    <div className="text-gray-500 italic px-3 py-2">No headings found</div>
+                    <div className="text-gray-500 italic px-3 py-2">{t('no_headings_found')}</div>
                   )}
                   {toc.map((h, i) => (
                     <a
@@ -681,8 +688,7 @@ export default function App() {
               <div className={sectionCard}>
                 <div className="pointer-events-none absolute -inset-1 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-600/20 via-teal-500/15 to-transparent" />
                 <div className="text-sm font-bold mb-6 text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
-                  Navigation
-                </div>
+                  {t('navigation')}</div>
 
                 <div className="space-y-2">
                   {headingsL1.map((h) => {
@@ -739,12 +745,11 @@ export default function App() {
             <div className={sectionCard}>
               <div className="pointer-events-none absolute -inset-1 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-600/20 via-teal-500/15 to-transparent" />
               <div className="text-sm font-bold mb-6 text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
-                Table of contents
-              </div>
+                {t('table_of_contents')}</div>
               <nav className="text-sm space-y-2">
                 {toc.length === 0 && (
                   <div className="text-gray-500 italic py-4">
-                    No headings found
+                    {t('no_headings_found')}
                   </div>
                 )}
                 {toc.map((h, i) => (
@@ -778,3 +783,4 @@ export default function App() {
     </div>
   );
 }
+

@@ -5,6 +5,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { ContentImagesApi } from "../../shared/api/admin";
 import type { UUID, ContentImage } from "../../shared/types/models";
 import type { ContentImageCreateDTO } from "../../shared/types/dto";
+import { useTranslation } from "react-i18next";
 
 interface ContentImageManagerProps {
   contentId: UUID;
@@ -20,6 +21,7 @@ interface ResizableImageProps {
 }
 
 function ResizableImage({ image, onSizeChange }: ResizableImageProps) {
+  const { t } = useTranslation();
   const [isResizing, setIsResizing] = useState(false);
   const [dimensions, setDimensions] = useState({
     width: image.width || 200,
@@ -139,7 +141,7 @@ function ResizableImage({ image, onSizeChange }: ResizableImageProps) {
       <div
         className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-se-resize hover:bg-blue-600 transition-colors z-10"
         onMouseDown={handleMouseDown}
-        title="Boyutu değiştirmek için sürükleyin"
+        title={t("drag_to_resize") || "Drag"}
         style={{
           userSelect: "none",
           touchAction: "none",
@@ -167,6 +169,7 @@ export default function ContentImageManager({
   contentId,
   onNotification,
 }: ContentImageManagerProps) {
+  const { t } = useTranslation();
   const [images, setImages] = useState<ContentImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -205,7 +208,7 @@ export default function ContentImageManager({
         console.log("[v0] Error message:", error.message);
         console.log("[v0] Error stack:", error.stack);
       }
-      onNotification("Resimler yüklenirken hata oluştu", "error");
+      onNotification(t("image_add_error"), "error");
     } finally {
       setLoading(false);
     }
@@ -258,7 +261,7 @@ export default function ContentImageManager({
         }
 
         await fetchImages();
-        onNotification("Resim başarıyla yüklendi", "success");
+        onNotification(t("image_added_success"), "success");
       } catch (error) {
         console.error("[v0] Upload failed:", error);
         onNotification(
@@ -291,9 +294,9 @@ export default function ContentImageManager({
           height: 150,
         });
         await fetchImages();
-        onNotification("Resim başarıyla eklendi", "success");
+        onNotification(t("image_added_success"), "success");
       } catch (error) {
-        onNotification("Resim eklenirken hata oluştu", "error");
+        onNotification(t("image_add_error"), "error");
       }
     }
   };
@@ -302,9 +305,9 @@ export default function ContentImageManager({
     try {
       await ContentImagesApi.remove(imageId);
       await fetchImages();
-      onNotification("Resim başarıyla silindi", "success");
+      onNotification(t("image_deleted_success"), "success");
     } catch (error) {
-      onNotification("Resim silinirken hata oluştu", "error");
+      onNotification(t("image_delete_error"), "error");
     }
   };
 
@@ -312,9 +315,9 @@ export default function ContentImageManager({
     try {
       await ContentImagesApi.update(imageId, { sort_order: newSortOrder });
       await fetchImages();
-      onNotification("Sıralama güncellendi", "success");
+      onNotification(t("order_updated_success"), "success");
     } catch (error) {
-      onNotification("Sıralama güncellenirken hata oluştu", "error");
+      onNotification(t("order_update_error"), "error");
     }
   };
 
@@ -324,13 +327,13 @@ export default function ContentImageManager({
       const file = files[0];
 
       if (!file.type.startsWith("image/")) {
-        onNotification("Lütfen sadece resim dosyası seçin", "error");
+        onNotification(t("select_only_image"), "error");
         e.target.value = "";
         return;
       }
 
       if (file.size > 10 * 1024 * 1024) {
-        onNotification("Dosya boyutu 10MB'dan küçük olmalı", "error");
+        onNotification(t("file_size_max_10mb"), "error");
         e.target.value = "";
         return;
       }
@@ -362,10 +365,10 @@ export default function ContentImageManager({
         )
       );
 
-      onNotification("Resim boyutu güncellendi", "success");
+      onNotification(t("image_size_updated"), "success");
     } catch (error) {
       console.log("[v0] API update failed:", error);
-      onNotification("Resim boyutu güncellenirken hata oluştu", "error");
+      onNotification(t("image_size_update_error"), "error");
       await fetchImages();
     }
   };
@@ -373,9 +376,7 @@ export default function ContentImageManager({
   return (
     <div className="space-y-4">
       <div className="font-semibold text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-        <span className="text-blue-600 dark:text-blue-400">🖼️</span> İçerik
-        Resimleri
-      </div>
+        <span className="text-blue-600 dark:text-blue-400">🖼️</span>{t("content_images")}</div>
 
       <form
         onSubmit={handleAddImage}
@@ -385,7 +386,7 @@ export default function ContentImageManager({
           <div className="lg:col-span-2 space-y-3">
             <input
               type="url"
-              placeholder="Resim URL'si"
+              placeholder={t("image_url_placeholder")}
               value={newImage.url}
               onChange={(e) => {
                 setNewImage((prev) => ({ ...prev, url: e.target.value }));
@@ -398,7 +399,7 @@ export default function ContentImageManager({
 
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-600 dark:text-gray-400">
-                veya
+                {t("or_text")}
               </span>
               <input
                 type="file"
@@ -411,7 +412,7 @@ export default function ContentImageManager({
                 htmlFor="file-input"
                 className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer transition-colors text-sm font-medium"
               >
-                📁 Bilgisayardan Seç
+                📁 {t("select_from_computer")}
               </label>
               {selectedFile && (
                 <span className="text-sm text-green-600 dark:text-green-400">
@@ -422,7 +423,7 @@ export default function ContentImageManager({
 
             <input
               type="text"
-              placeholder="Alt metin (opsiyonel)"
+              placeholder={t("alt_text_optional")}
               value={newImage.alt}
               onChange={(e) =>
                 setNewImage((prev) => ({ ...prev, alt: e.target.value }))
@@ -432,7 +433,7 @@ export default function ContentImageManager({
 
             <input
               type="number"
-              placeholder="Sıra numarası"
+              placeholder={t("sort_order")}
               value={newImage.sort_order}
               onChange={(e) =>
                 setNewImage((prev) => ({
@@ -446,7 +447,7 @@ export default function ContentImageManager({
             <div className="grid grid-cols-2 gap-3">
               <input
                 type="number"
-                placeholder="Genişlik (px)"
+                placeholder={t("width_px")}
                 value={newImage.width}
                 onChange={(e) =>
                   setNewImage((prev) => ({
@@ -458,7 +459,7 @@ export default function ContentImageManager({
               />
               <input
                 type="number"
-                placeholder="Yükseklik (px)"
+                placeholder={t("height_px")}
                 value={newImage.height}
                 onChange={(e) =>
                   setNewImage((prev) => ({
@@ -505,19 +506,25 @@ export default function ContentImageManager({
                       const startW = newImage.width;
                       const startH = newImage.height;
                       const move = (me: MouseEvent) => {
-                        const w = Math.max(100, startW + (me.clientX - startX));
-                        const h = Math.max(75, startH + (me.clientY - startY));
-                        setNewImage((p) => ({ ...p, width: w, height: h }));
-                      };
-                      const up = () => {
-                        document.removeEventListener("mousemove", move);
-                        document.removeEventListener("mouseup", up);
-                      };
-                      document.addEventListener("mousemove", move);
-                      document.addEventListener("mouseup", up);
-                    }}
-                    title="Boyutu değiştirmek için sürükleyin"
-                  />
+                    const w = Math.max(
+                      100,
+                      startW + (me.clientX - startX)
+                    );
+                    const h = Math.max(
+                      75,
+                      startH + (me.clientY - startY)
+                    );
+                    setNewImage((p) => ({ ...p, width: w, height: h }));
+                  };
+                  const up = () => {
+                    document.removeEventListener("mousemove", move);
+                    document.removeEventListener("mouseup", up);
+                  };
+                  document.addEventListener("mousemove", move);
+                  document.addEventListener("mouseup", up);
+                }}
+                title={t("drag_to_resize")}
+              />
 
                   {/* Size indicator */}
                   <div className="absolute top-1 left-1 bg-black/70 text-white text-xs px-2 py-1 rounded pointer-events-none">
@@ -531,7 +538,7 @@ export default function ContentImageManager({
                 <div className="aspect-video rounded-lg bg-gray-100 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center">
                   <div className="text-center text-gray-400 dark:text-gray-600 text-xs">
                     <div className="text-2xl mb-1">📷</div>
-                    <div>Önizleme</div>
+                    <div>{t("preview")}</div>
                   </div>
                 </div>
               )}
@@ -543,16 +550,14 @@ export default function ContentImageManager({
           disabled={(!newImage.url.trim() && !selectedFile) || uploading}
           className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-[1.02] disabled:transform-none"
         >
-          {uploading ? "Yükleniyor..." : "Resim Ekle"}
+          {uploading ? t("uploading") : t("add_image")}
         </button>
       </form>
 
       {loading ? (
-        <div className="text-center py-4 text-gray-500">Yükleniyor...</div>
+        <div className="text-center py-4 text-gray-500">{t("uploading")}</div>
       ) : images.length === 0 ? (
-        <div className="text-center py-4 text-gray-500">
-          Henüz resim eklenmemiş
-        </div>
+        <div className="text-center py-4 text-gray-500">{t("no_images_yet")}</div>
       ) : (
         <div className="space-y-6">
           {images.map((image) => (
@@ -564,7 +569,7 @@ export default function ContentImageManager({
                 <div className="flex items-start gap-4">
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="text-sm font-medium text-gray-900 dark:text-white break-words">
-                      {image.alt || "Alt metin yok"}
+                      {image.alt || t("no_alt_text")}
                     </div>
                     <div className="text-xs text-gray-500 break-all leading-relaxed max-w-full">
                       {image.url}
@@ -587,7 +592,7 @@ export default function ContentImageManager({
                       onClick={() => handleDeleteImage(image.id)}
                       className="px-3 py-1 text-xs bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors whitespace-nowrap"
                     >
-                      Sil
+                      {t("delete")}
                     </button>
                   </div>
                 </div>

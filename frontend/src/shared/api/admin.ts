@@ -177,3 +177,10 @@ export const ContentImagesApi = {
     return http.post<ContentImage>("/admin/content-images/upload", formData);
   },
 };
+
+export const AI = { formatMarkdown: (text: string) => http.post<{markdown: string}>('/admin/format-markdown', { text }) };
+
+export const AdminSettingsApi = {
+  updateSettings: (data: { site_title?: string; site_logo?: string }) => http.put("/admin/settings", data),
+  uploadSiteLogo: (formData: FormData) => http.post("/admin/settings/logo", formData),
+};

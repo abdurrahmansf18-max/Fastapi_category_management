@@ -402,3 +402,13 @@ async def search(q: str = Query(..., min_length=2), limit: int = Query(20, ge=1,
         """,
         {"q": q, "limit": limit},
     )
+
+
+@public_router.get("/settings")
+async def get_site_settings():
+    rows = await fetch_all("SELECT key, value FROM site_setting")
+    settings = {row["key"]: row["value"] for row in rows}
+    # Ensure default values exist in return
+    if "site_title" not in settings: settings["site_title"] = "Fastapi"
+    if "site_logo" not in settings: settings["site_logo"] = ""
+    return settings

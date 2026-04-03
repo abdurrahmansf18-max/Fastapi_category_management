@@ -12,7 +12,7 @@ from app.db.session import fetch_one
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/admin/login")
 
-def create_access_token(data: Dict[str, Any], expires_delta: Optional = None) -> str:
+def create_access_token(data: Dict[str, Any], expires_delta: Optional[datetime]  = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or ACCESS_TOKEN_EXPIRE_DELTA)
     to_encode.update({"exp": expire})

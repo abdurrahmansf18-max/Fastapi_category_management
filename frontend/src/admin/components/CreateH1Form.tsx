@@ -1,9 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 export default function CreateH1Form({
   onCreate,
 }: {
   onCreate: (title: string) => void;
 }) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState("");
   return (
     <form
@@ -19,11 +21,11 @@ export default function CreateH1Form({
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Yeni Başlık Adı"
+          placeholder={t("new_title_name")}
           className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
         />
         <button className="w-full px-3 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 transform hover:scale-[1.01] text-sm">
-          + Başlık Ekle
+          + {t("add_title")}
         </button>
       </div>
     </form>

@@ -6,12 +6,15 @@ import "./i18n";
 import "./index.css";
 import PublicApp from "./user/PublicApp";
 import AdminApp from "./admin/AdminApp";
+import { SettingsProvider } from "./shared/context/SettingsContext";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
-    <Routes>
-      <Route path="/admin" element={<AdminApp />} />
-      <Route path="/" element={<PublicApp />} />
-    </Routes>
+    <SettingsProvider>
+      <Routes>
+        <Route path="/admin" element={<AdminApp />} />
+        <Route path="/" element={<PublicApp />} />
+      </Routes>
+    </SettingsProvider>
   </BrowserRouter>
 );

@@ -36,3 +36,4 @@ async def healthz():
         return {"ok": bool(row)}
     except Exception as e:
         raise HTTPException(500, f"DB error: {e}")
+ 

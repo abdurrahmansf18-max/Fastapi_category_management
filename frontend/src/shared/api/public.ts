@@ -26,4 +26,5 @@ export const PublicApi = {
   contentImages: (contentId: string) => {
     return http.get<ContentImage[]>(`/contents/${contentId}/images`);
   },
+  settings: () => http.get<Record<string, string>>("/settings"),
 };

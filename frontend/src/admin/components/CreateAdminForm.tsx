@@ -39,14 +39,13 @@ export default function CreateAdminForm({
       className="mt-8 p-5 rounded-xl bg-gradient-to-br from-gray-50/80 to-gray-100/80 dark:from-gray-800/50 dark:to-gray-900/50 border border-dashed border-gray-300/60 dark:border-gray-700/60 backdrop-blur-sm"
     >
       <div className="font-semibold mb-4 text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-        <span className="text-orange-600 dark:text-orange-400">+</span> Yeni
-        Admin Ekle
+        <span className="text-orange-600 dark:text-orange-400">+</span> {t("add_new_admin")}
       </div>
       <div className="space-y-3">
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="E-posta"
+          placeholder={t("email")}
           className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200"
         />
         <input
@@ -68,7 +67,7 @@ export default function CreateAdminForm({
           disabled={!!err || !pw || !email}
           className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200"
         >
-          Admin Ekle
+          {t("add_admin")}
         </button>
       </div>
     </form>

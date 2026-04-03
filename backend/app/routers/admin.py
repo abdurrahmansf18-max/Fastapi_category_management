@@ -519,3 +519,66 @@ async def admin_search(
 ):
     # SQL fonksiyonu: Core ile tanımlamak yerine string çağırmak en pratik
     return await fetch_all("SELECT * FROM search_all_trgm(:q, :limit)", {"q": q, "limit": limit})
+
+
+import os
+
+import os
+import google.generativeai as genai
+from pydantic import BaseModel
+
+class FormatMarkdownRequest(BaseModel):
+    text: str
+
+@admin_router.post("/format-markdown")
+async def format_markdown(req: FormatMarkdownRequest, _: dict = Depends(get_current_admin)):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured on server")
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        prompt = f"""Sen profesyonel bir Markdown formatlayıcısısın. Sana verilen metni zengin Markdown formatına çevir.
+
+Kurallar:
+1. Kod parçalarını (```python vb.) aynı şekilde koru.
+2. Listeleri (-, 1.) aynı şekilde alt alta koru.
+3. Basşlıkları (#) uygun şekilde koru.
+4. Paragrafları bozma, satır arası boşluk Koy.
+5. Sadece Markdown kodunu döndür, baştaki ve sondaki açıklayıcımarkdown ibarelerini alma.
+
+Metin:
+{req.text}"""
+        response = model.generate_content(prompt)
+        text = response.text
+        if text.startswith("```markdown") and text.endswith("```"):
+            text = text[11:-3].strip()
+        elif text.startswith("```") and text.endswith("```"):
+            text = text[3:-3].strip()
+        return {"markdown": text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# ---- Site Settings ----
+from app.schemas import SiteSettingsUpdate
+
+@admin_router.put("/settings")
+async def update_site_settings(payload: SiteSettingsUpdate, _=Depends(get_current_admin)):
+    if payload.site_title is not None:
+        await execute("INSERT INTO site_setting (key, value) VALUES ('site_title', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.site_title})
+    if payload.site_logo is not None:
+        await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.site_logo})
+    return {"message": "Settings updated"}
+
+@admin_router.post("/settings/logo")
+async def upload_site_logo(request: Request, file: UploadFile = File(...), _=Depends(get_current_admin)):
+    try:
+        _, public_url = await storage.save_image(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    abs_url = _abs_url(request, public_url)
+    await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": abs_url})
+    return {"site_logo": abs_url}

@@ -200,3 +200,11 @@ class SearchResponse(BaseModel):
     results: List[SearchResult]
     query: str
     total_count: int
+# ---- Site Settings ----
+class SiteSettings(BaseModel):
+    site_title: str
+    site_logo: str
+
+class SiteSettingsUpdate(BaseModel):
+    site_title: Optional[str] = None
+    site_logo: Optional[str] = None
