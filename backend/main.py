@@ -7,7 +7,9 @@ from app.core.config import (
     APP_TITLE, APP_VERSION, FRONTEND_ORIGIN,
     STATIC_MOUNT_PATH, ABS_UPLOADS_DIR
 )
+from app.db.provisioning import run_platform_migrations
 from app.db.session import fetch_one
+from app.routers.auth import auth_router
 from app.routers.admin import admin_router
 from app.routers.public import public_router
 
@@ -26,8 +28,14 @@ Path(ABS_UPLOADS_DIR).mkdir(parents=True, exist_ok=True)
 app.mount(STATIC_MOUNT_PATH, StaticFiles(directory=ABS_UPLOADS_DIR), name="static")
 app.mount("/api" + STATIC_MOUNT_PATH, StaticFiles(directory=ABS_UPLOADS_DIR), name="api-static")
 
+app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(public_router)
+
+
+@app.on_event("startup")
+async def startup():
+    await run_platform_migrations()
 
 @app.get("/healthz", tags=["meta"])
 async def healthz():

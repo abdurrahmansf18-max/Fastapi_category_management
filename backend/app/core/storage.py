@@ -17,7 +17,12 @@ class LocalStorage:
         self.allowed = _allowed_mimes()
         self.max_bytes = settings.MAX_UPLOAD_BYTES
 
-    async def save_image(self, file: UploadFile) -> Tuple[str, str]:
+    async def save_image(
+        self,
+        file: UploadFile,
+        tenant_slug: str | None = None,
+        max_total_bytes: int | None = None,
+    ) -> Tuple[str, str]:
         if file.content_type not in self.allowed:
             raise ValueError("Unsupported file type")
 
@@ -33,6 +38,13 @@ class LocalStorage:
                 raise ValueError("File too large")
             chunks.append(chunk)
 
+        base_dir = self.base_dir / tenant_slug if tenant_slug else self.base_dir
+        base_dir.mkdir(parents=True, exist_ok=True)
+        if max_total_bytes is not None:
+            existing = sum(p.stat().st_size for p in base_dir.rglob("*") if p.is_file())
+            if existing + size > max_total_bytes:
+                raise ValueError("Upload limit reached for this plan")
+
         ext = {
             "image/jpeg": ".jpg",
             "image/png": ".png",
@@ -41,7 +53,7 @@ class LocalStorage:
         }.get(file.content_type, "")
 
         fname = f"{uuid.uuid4().hex}{ext}"
-        abs_path = self.base_dir / fname
+        abs_path = base_dir / fname
         with open(abs_path, "wb") as f:
             for ch in chunks:
                 f.write(ch)
@@ -56,5 +68,9 @@ class LocalStorage:
 
         # Kayıtlara mutlak domain yerine relatif yol yazalım.
         # Böylece dış ortam (ngrok, prod) altında doğru domain ile servis edilir.
-        public_url = f"{settings.STATIC_MOUNT_PATH}/{fname}"
+        public_url = (
+            f"{settings.STATIC_MOUNT_PATH}/{tenant_slug}/{fname}"
+            if tenant_slug
+            else f"{settings.STATIC_MOUNT_PATH}/{fname}"
+        )
         return str(abs_path), public_url

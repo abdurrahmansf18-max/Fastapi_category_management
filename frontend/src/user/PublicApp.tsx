@@ -11,7 +11,7 @@ import { cx } from "../shared/utils/cx";
 import { slugify } from "../shared/utils/slug";
 import ContentBody from "./components/ContentBody";
 import Empty from "./components/Empty";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useSettings } from "../shared/context/SettingsContext";
 
 import type { UUID } from "../shared/types/models";
@@ -27,6 +27,7 @@ import type {
 export default function App() {
   const { t } = useTranslation();
   const { siteTitle, siteLogo } = useSettings();
+  const { tenantSlug = "" } = useParams();
 
   const navigate = useNavigate();
   // theme
@@ -139,6 +140,14 @@ export default function App() {
 
   // -------- initial load --------
   useEffect(() => {
+    setCategories([]);
+    setActiveCat(null);
+    setActiveH1(null);
+    setActiveH2(null);
+    setHeadingsL1([]);
+    setHeadingsL2([]);
+    setPage(null);
+    setContents([]);
     PublicApi.categories()
       .then((cats) => {
         setCategories(cats);
@@ -146,7 +155,7 @@ export default function App() {
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tenantSlug]);
 
   // ---------- search ----------
   useEffect(() => {
@@ -431,7 +440,7 @@ export default function App() {
           </div>
 
           <a
-            href="/admin"
+            href={`/d/${tenantSlug}/admin`}
             className="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 
              text-white text-sm font-semibold shadow-lg shadow-emerald-600/30 transition-all duration-300 hover:scale-105"
           >

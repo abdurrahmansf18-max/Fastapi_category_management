@@ -24,6 +24,7 @@ FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 # App info
 APP_TITLE = "Docs Platform API"
 APP_VERSION = "1.0.0"
+APP_PUBLIC_BASE_URL = os.getenv("APP_PUBLIC_BASE_URL", "http://localhost:5173")
 
 # Upload ayarları
 UPLOADS_DIR = os.getenv("UPLOADS_DIR", "uploads")
@@ -39,6 +40,14 @@ ALLOWED_MIME = os.getenv("ALLOWED_MIME", "image/jpeg,image/png,image/webp,image/
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ABS_UPLOADS_DIR = str((PROJECT_ROOT / UPLOADS_DIR).resolve())
 
+# Email verification
+SMTP_HOST = os.getenv("SMTP_HOST", "")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "")
+SMTP_TLS = os.getenv("SMTP_TLS", "true").lower() in {"1", "true", "yes", "on"}
+
 # storage.py ve admin.py burada settings bekliyor
 settings = SimpleNamespace(
     UPLOADS_DIR=UPLOADS_DIR,
@@ -47,4 +56,11 @@ settings = SimpleNamespace(
     MAX_UPLOAD_BYTES=MAX_UPLOAD_BYTES,
     ALLOWED_MIME=ALLOWED_MIME,
     ABS_UPLOADS_DIR=ABS_UPLOADS_DIR,
+    APP_PUBLIC_BASE_URL=APP_PUBLIC_BASE_URL,
+    SMTP_HOST=SMTP_HOST,
+    SMTP_PORT=SMTP_PORT,
+    SMTP_USER=SMTP_USER,
+    SMTP_PASSWORD=SMTP_PASSWORD,
+    SMTP_FROM=SMTP_FROM,
+    SMTP_TLS=SMTP_TLS,
 )

@@ -1,9 +1,11 @@
 // frontend/src/shared/hooks/useAdminAuth.ts
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { AdminAuth } from "../api/admin";
 import { getAdminToken, setAdminToken } from "../api/client";
 
 export function useAdminAuth() {
+  const location = useLocation();
   const [token, setTokenState] = useState<string | null>(getAdminToken());
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState<string | null>(null);
@@ -11,7 +13,11 @@ export function useAdminAuth() {
   // localStorage güncelle
   useEffect(() => {
     setAdminToken(token ?? null);
-  }, [token]);
+  }, [token, location.pathname]);
+
+  useEffect(() => {
+    setTokenState(getAdminToken());
+  }, [location.pathname]);
 
   const login = useCallback(async (username: string, password: string): Promise<string> => {
     setLoading(true);

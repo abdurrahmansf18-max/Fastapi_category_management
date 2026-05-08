@@ -1,12 +1,17 @@
 # app/routers/admin.py
 import uuid
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, insert, update, delete, func
 from fastapi.security import OAuth2PasswordRequestForm
 from app.core.security import pwd_context, create_access_token, get_current_admin
-from app.db.session import fetch_one, fetch_all, execute
+from app.core.tenancy import (
+    enforce_tenant_limit,
+    get_tenant_context,
+    require_tenant_context,
+)
+from app.db.session import fetch_one, fetch_all, execute, platform_execute, platform_fetch_one, platform_fetch_all
 from app.db.models import admin_user as t_admin, category as t_category, heading as t_heading, content as t_content, content_image as t_content_image
 from app.schemas import (
     TokenOut, AdminInitIn, AdminCreateIn, AdminOut, AdminPasswordIn,
@@ -23,7 +28,11 @@ from urllib.parse import urlparse
 from pathlib import Path
 
 
-admin_router = APIRouter(prefix="/admin", tags=["admin"])
+admin_router = APIRouter(
+    prefix="/t/{tenant_slug}/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_tenant_context)],
+)
 storage = LocalStorage()  # env'den UPLOADS_DIR + STATIC_BASE_URL alır
 # ---- URL helper (absolute for current host) ----
 def _abs_url(request: Request, url: str) -> str:
@@ -48,91 +57,188 @@ def _abs_url(request: Request, url: str) -> str:
         url = "/" + url
     return f"{base}{url}"
 
-# ---- Auth & Admin Users ----
-@admin_router.post("/init", response_model=AdminOut)
-async def bootstrap_admin(payload: AdminInitIn):
-    # SELECT COUNT(*) AS c FROM admin_user
-    stmt_count = select(func.count().label("c")).select_from(t_admin)
-    count_row = await fetch_one(stmt_count)
-    if count_row["c"] > 0:
-        raise HTTPException(status_code=403, detail="Init only allowed when there is no admin.")
-
-    phash = pwd_context.hash(payload.password)
-    stmt_ins = (
-        insert(t_admin)
-        .values(email=payload.email, password_hash=phash)
-        .returning(t_admin.c.id, t_admin.c.email, t_admin.c.created_at)
-    )
-    rows = await execute(stmt_ins)
-    return rows[0]
-
+# ---- Auth & Tenant Members ----
 @admin_router.post("/login", response_model=TokenOut)
-async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
-    stmt = select(
-        t_admin.c.id, t_admin.c.email, t_admin.c.password_hash
-    ).where(t_admin.c.email == form_data.username)
-
-    row = await fetch_one(stmt)
-    if not row or not pwd_context.verify(form_data.password, row["password_hash"]):
+async def admin_login(
+    tenant_slug: str,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+):
+    row = await platform_fetch_one(
+        """
+        SELECT
+          ua.id,
+          ua.email,
+          ua.password_hash,
+          ua.email_verified,
+          tm.role,
+          t.id AS tenant_id,
+          t.slug AS tenant_slug
+        FROM public.user_account ua
+        JOIN public.tenant_member tm ON tm.user_id = ua.id
+        JOIN public.tenant t ON t.id = tm.tenant_id
+        WHERE ua.email = :email
+          AND t.slug = :tenant_slug
+          AND t.status = 'active'
+        """,
+        {"email": form_data.username, "tenant_slug": tenant_slug},
+    )
+    if not row or not row["email_verified"] or not pwd_context.verify(form_data.password, row["password_hash"]):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
 
-    token = create_access_token({"uid": str(row["id"]), "sub": row["email"]})
+    token = create_access_token(
+        {
+            "uid": str(row["id"]),
+            "user_id": str(row["id"]),
+            "sub": row["email"],
+            "tenant_id": str(row["tenant_id"]),
+            "tenant_slug": row["tenant_slug"],
+            "role": row["role"],
+        }
+    )
     return {"access_token": token, "token_type": "bearer"}
+
 
 @admin_router.get("/me", response_model=AdminOut)
 async def me(current=Depends(get_current_admin)):
-    stmt = select(t_admin.c.id, t_admin.c.email, t_admin.c.created_at).where(t_admin.c.id == uuid.UUID(current["id"]))
-    row = await fetch_one(stmt)
+    row = await platform_fetch_one(
+        "SELECT id, email, created_at FROM public.user_account WHERE id = :id",
+        {"id": uuid.UUID(current["id"])},
+    )
     return row
 
+
 @admin_router.post("/users", response_model=AdminOut, status_code=201)
-async def create_admin_user(payload: AdminCreateIn, _=Depends(get_current_admin)):
+async def create_admin_user(payload: AdminCreateIn, current=Depends(get_current_admin)):
+    if current["role"] != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner can create admins")
+    await enforce_tenant_limit("admins")
+
+    tenant = get_tenant_context()
     phash = pwd_context.hash(payload.password)
     try:
-        stmt = (
-            insert(t_admin)
-            .values(email=payload.email, password_hash=phash, created_at=func.now(), updated_at=func.now())
-            .returning(t_admin.c.id, t_admin.c.email, t_admin.c.created_at)
+        existing = await platform_fetch_one(
+            "SELECT id FROM public.user_account WHERE email = :email",
+            {"email": payload.email},
         )
-        rows = await execute(stmt)
+        if existing:
+            user_id = existing["id"]
+            member = await platform_fetch_one(
+                "SELECT tenant_id FROM public.tenant_member WHERE user_id = :user_id",
+                {"user_id": user_id},
+            )
+            if member:
+                raise HTTPException(status_code=409, detail="User already belongs to a workspace")
+            await platform_execute(
+                """
+                UPDATE public.user_account
+                SET password_hash = :password_hash, email_verified = true
+                WHERE id = :user_id
+                """,
+                {"password_hash": phash, "user_id": user_id},
+            )
+        else:
+            rows = await platform_execute(
+                """
+                INSERT INTO public.user_account (email, password_hash, email_verified)
+                VALUES (:email, :password_hash, true)
+                RETURNING id
+                """,
+                {"email": payload.email, "password_hash": phash},
+            )
+            user_id = rows[0]["id"]
+
+        await platform_execute(
+            """
+            INSERT INTO public.tenant_member (tenant_id, user_id, role)
+            VALUES (:tenant_id, :user_id, 'admin')
+            """,
+            {"tenant_id": tenant.id, "user_id": user_id},
+        )
     except IntegrityError as e:
         raise HTTPException(status_code=409, detail="Email already exists") from e
-    return rows[0]
+
+    return await platform_fetch_one(
+        "SELECT id, email, created_at FROM public.user_account WHERE id = :id",
+        {"id": user_id},
+    )
+
 
 @admin_router.get("/users", response_model=List[AdminOut])
 async def list_admin_users(_=Depends(get_current_admin)):
-    stmt = select(t_admin.c.id, t_admin.c.email, t_admin.c.created_at).order_by(t_admin.c.created_at)
-    return await fetch_all(stmt)
+    tenant = get_tenant_context()
+    return await platform_fetch_all(
+        """
+        SELECT ua.id, ua.email, ua.created_at
+        FROM public.tenant_member tm
+        JOIN public.user_account ua ON ua.id = tm.user_id
+        WHERE tm.tenant_id = :tenant_id
+        ORDER BY ua.created_at
+        """,
+        {"tenant_id": tenant.id},
+    )
+
 
 @admin_router.delete("/users/{admin_id}", status_code=204)
-async def delete_admin_user(admin_id: uuid.UUID, _=Depends(get_current_admin)):
-    # Son admin'i silmeyi engelle
-    stmt_count = select(func.count().label("c")).select_from(t_admin)
-    cnt = await fetch_one(stmt_count)
-    if cnt and cnt["c"] <= 1:
-        raise HTTPException(status_code=400, detail="Cannot delete the last admin.")
+async def delete_admin_user(admin_id: uuid.UUID, current=Depends(get_current_admin)):
+    if current["role"] != "owner":
+        raise HTTPException(status_code=403, detail="Only the owner can delete admins")
+    if str(admin_id) == current["id"]:
+        raise HTTPException(status_code=400, detail="Owner cannot delete itself")
 
-    stmt = delete(t_admin).where(t_admin.c.id == admin_id).returning(t_admin.c.id)
-    rows = await execute(stmt)
-    if not rows:
+    tenant = get_tenant_context()
+    member = await platform_fetch_one(
+        """
+        SELECT role FROM public.tenant_member
+        WHERE tenant_id = :tenant_id AND user_id = :user_id
+        """,
+        {"tenant_id": tenant.id, "user_id": admin_id},
+    )
+    if not member:
         raise HTTPException(404, "Admin not found")
+    if member["role"] == "owner":
+        raise HTTPException(status_code=400, detail="Owner cannot be deleted")
+
+    await platform_execute(
+        """
+        DELETE FROM public.tenant_member
+        WHERE tenant_id = :tenant_id AND user_id = :user_id
+        """,
+        {"tenant_id": tenant.id, "user_id": admin_id},
+    )
     return
 
+
 @admin_router.patch("/users/{admin_id}/password", status_code=204)
-async def change_admin_password(admin_id: uuid.UUID, p: AdminPasswordIn, _=Depends(get_current_admin)):
-    phash = pwd_context.hash(p.password)
-    stmt = (
-        update(t_admin)
-        .where(t_admin.c.id == admin_id)
-        .values(password_hash=phash, updated_at=func.now())
-        .returning(t_admin.c.id)
+async def change_admin_password(admin_id: uuid.UUID, p: AdminPasswordIn, current=Depends(get_current_admin)):
+    if current["role"] != "owner" and str(admin_id) != current["id"]:
+        raise HTTPException(status_code=403, detail="Not allowed to change this password")
+
+    tenant = get_tenant_context()
+    member = await platform_fetch_one(
+        """
+        SELECT 1 FROM public.tenant_member
+        WHERE tenant_id = :tenant_id AND user_id = :user_id
+        """,
+        {"tenant_id": tenant.id, "user_id": admin_id},
     )
-    await execute(stmt)
+    if not member:
+        raise HTTPException(404, "Admin not found")
+
+    phash = pwd_context.hash(p.password)
+    await platform_execute(
+        """
+        UPDATE public.user_account
+        SET password_hash = :password_hash
+        WHERE id = :user_id
+        """,
+        {"password_hash": phash, "user_id": admin_id},
+    )
     return
 
 # ---- Category CRUD ----
 @admin_router.post("/categories", response_model=CategoryOut)
 async def create_category(payload: CategoryCreate, _=Depends(get_current_admin)):
+    await enforce_tenant_limit("categories")
     try:
         stmt = (
             insert(t_category)
@@ -201,6 +307,7 @@ async def delete_category(id: uuid.UUID, _=Depends(get_current_admin)):
 # ---- Heading CRUD ----
 @admin_router.post("/headings", response_model=HeadingOut)
 async def create_heading(payload: HeadingCreate, _=Depends(get_current_admin)):
+    await enforce_tenant_limit("headings")
     stmt = (
         insert(t_heading)
         .values(
@@ -288,6 +395,7 @@ async def delete_heading(id: uuid.UUID, _=Depends(get_current_admin)):
 # ---- Content CRUD ----
 @admin_router.post("/contents", response_model=ContentOut)
 async def create_content(payload: ContentCreate, _=Depends(get_current_admin)):
+    await enforce_tenant_limit("contents")
     # heading başına tek içerik kuralı - var mı?
     stmt_exists = select(t_content.c.id).where(t_content.c.heading_id == payload.heading_id)
     exists = await fetch_one(stmt_exists)
@@ -450,13 +558,18 @@ async def upload_content_image(
     height: Optional[int] = Form(0),   # <-- yeni
     _=Depends(get_current_admin),
 ):
+    tenant = get_tenant_context()
     # (opsiyonel) content_id var mı doğrula
     exists = await fetch_one(select(t_content.c.id).where(t_content.c.id == content_id))
     if not exists:
         raise HTTPException(status_code=404, detail="Content not found")
 
     try:
-        _, public_url = await storage.save_image(file)
+        _, public_url = await storage.save_image(
+            file,
+            tenant_slug=tenant.slug,
+            max_total_bytes=tenant.max_upload_bytes,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -487,6 +600,7 @@ async def upload_content_image(
 
 @admin_router.delete("/content-images/{id}", status_code=204)
 async def delete_content_image(id: uuid.UUID, _=Depends(get_current_admin)):
+    tenant = get_tenant_context()
     row = await fetch_one(
         select(t_content_image.c.id, t_content_image.c.url).where(t_content_image.c.id == id)
     )
@@ -502,7 +616,7 @@ async def delete_content_image(id: uuid.UUID, _=Depends(get_current_admin)):
     # URL'den dosya adını al ve uploads'tan sil
     parsed = urlparse(row["url"])
     fname = Path(parsed.path).name
-    fpath = Path(settings.UPLOADS_DIR) / fname
+    fpath = Path(settings.ABS_UPLOADS_DIR) / tenant.slug / fname
     try:
         fpath.unlink(missing_ok=True)
     except Exception:
@@ -574,8 +688,13 @@ async def update_site_settings(payload: SiteSettingsUpdate, _=Depends(get_curren
 
 @admin_router.post("/settings/logo")
 async def upload_site_logo(request: Request, file: UploadFile = File(...), _=Depends(get_current_admin)):
+    tenant = get_tenant_context()
     try:
-        _, public_url = await storage.save_image(file)
+        _, public_url = await storage.save_image(
+            file,
+            tenant_slug=tenant.slug,
+            max_total_bytes=tenant.max_upload_bytes,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
         

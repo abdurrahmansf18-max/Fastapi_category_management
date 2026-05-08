@@ -23,6 +23,7 @@ function FlashIcon({ className = "w-6 h-6" }: { className?: string }) {
 
 // frontend/src/admin/App.tsx
 import React, { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import ContentImageManager from "./components/ContentImageManager";
 import CreateCategoryForm from "./components/CreateCategoryForm";
 import CreateH1Form from "./components/CreateH1Form";
@@ -97,6 +98,7 @@ import AdminUsersView from './views/AdminUsersView';
 export default function App() {
   const { t } = useTranslation();
   const { siteTitle, siteLogo, reload: reloadSettings } = useSettings();
+  const { tenantSlug = "" } = useParams();
 
   // theme
   const [theme, setTheme] = useState<"light" | "dark">(
@@ -753,7 +755,7 @@ export default function App() {
 
           <div className="flex items-center gap-4">
             <a
-              href="/"
+              href={`/d/${tenantSlug}`}
               className="px-6 py-3 rounded-2xl text-sm font-bold text-white
                          ring-2 ring-emerald-500/60 hover:ring-emerald-400
                          bg-emerald-600/30 hover:bg-emerald-600/40

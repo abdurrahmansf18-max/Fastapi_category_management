@@ -2,12 +2,31 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field, model_validator, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 # ---- Auth/Admin ----
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class SignupIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)
+    workspace_name: str = Field(min_length=2, max_length=120)
+    tenant_slug: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", min_length=2, max_length=63)
+
+class SignupOut(BaseModel):
+    message: str
+    tenant_slug: str
+    verification_link: str
+    dev_verification_token: Optional[str] = None
+
+class VerifyEmailIn(BaseModel):
+    token: str = Field(min_length=20)
+
+class VerifyEmailOut(BaseModel):
+    message: str
+    tenant_slug: str
 
 class AdminInitIn(BaseModel):
     email: EmailStr

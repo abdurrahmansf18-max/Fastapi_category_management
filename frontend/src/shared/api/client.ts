@@ -2,18 +2,47 @@
 export const API_BASE: string =
   (import.meta as any).env?.VITE_API_BASE ?? "/api";
 
+export function getTenantSlug(): string | null {
+  try {
+    const match = window.location.pathname.match(/^\/d\/([^/]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function tokenKey(): string {
+  const slug = getTenantSlug();
+  return slug ? `adm_token:${slug}` : "adm_token";
+}
+
+function scopedPath(path: string): string {
+  if (
+    path.startsWith("/auth") ||
+    path.startsWith("/healthz") ||
+    path.startsWith("/static") ||
+    path.startsWith("/api/static")
+  ) {
+    return path;
+  }
+  if (path.startsWith("/t/")) return path;
+  const slug = getTenantSlug();
+  return slug ? `/t/${encodeURIComponent(slug)}${path}` : path;
+}
+
 /* -------- Token helpers -------- */
 export function getAdminToken(): string | null {
   try {
-    return localStorage.getItem("adm_token");
+    return localStorage.getItem(tokenKey());
   } catch {
     return null;
   }
 }
 export function setAdminToken(tok: string | null) {
   try {
-    if (tok) localStorage.setItem("adm_token", tok);
-    else localStorage.removeItem("adm_token");
+    const key = tokenKey();
+    if (tok) localStorage.setItem(key, tok);
+    else localStorage.removeItem(key);
   } catch {
     /* noop */
   }
@@ -137,7 +166,7 @@ export async function request<T = any>(
   const { json, auth = true, expect, headers: extraHeaders, ...rest } = opts;
   const headers = buildHeaders(extraHeaders, auth);
   const { body } = toBodyAndHeaders(headers, json);
-  const res = await fetch(`${API_BASE}${path}`, { ...rest, headers, body });
+  const res = await fetch(`${API_BASE}${scopedPath(path)}`, { ...rest, headers, body });
   return handleResponse<T>(res, expect);
 }
 

@@ -2,7 +2,7 @@
 import uuid
 from typing import List, Dict
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
 from sqlalchemy import select, exists, and_, or_
 from app.db.session import fetch_one, fetch_all
@@ -20,8 +20,13 @@ from app.schemas import (
     MenuNode,
     ContentImageOut,
 )
+from app.core.tenancy import require_tenant_context
 
-public_router = APIRouter(tags=["public"])
+public_router = APIRouter(
+    prefix="/t/{tenant_slug}",
+    tags=["public"],
+    dependencies=[Depends(require_tenant_context)],
+)
 
 # ========== Helpers (EXISTS koşulları) ==========
 
