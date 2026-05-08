@@ -314,4 +314,3 @@ CREATE TABLE public.site_setting (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-INSERT INTO public.site_setting (key, value) VALUES ('site_title', 'Fastapi') ON CONFLICT DO NOTHING;
