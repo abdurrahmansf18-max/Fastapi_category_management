@@ -3,9 +3,10 @@ import uuid
 from typing import List, Dict
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from pydantic import BaseModel, Field
 
 from sqlalchemy import select, exists, and_, or_
-from app.db.session import fetch_one, fetch_all
+from app.db.session import fetch_one, fetch_all, platform_execute
 from app.db.models import (
     category as t_category,
     heading as t_heading,
@@ -21,12 +22,22 @@ from app.schemas import (
     ContentImageOut,
 )
 from app.core.tenancy import require_tenant_context
+from app.core.tenancy import get_tenant_context
+from app.core.rate_limit import enforce_rate_limit
+from app.core.cache import cache_get_json, cache_set_json, tenant_public_cache_prefix
+from app.core.search import record_search_event, search_tenant, suggest_tenant, tenant_seo_urls
 
 public_router = APIRouter(
     prefix="/t/{tenant_slug}",
     tags=["public"],
     dependencies=[Depends(require_tenant_context)],
 )
+
+
+class FeedbackIn(BaseModel):
+    rating: str = Field(pattern="^(helpful|not_helpful)$")
+    url: str = Field(min_length=1, max_length=500)
+    message: str | None = Field(default=None, max_length=1000)
 
 # ========== Helpers (EXISTS koşulları) ==========
 
@@ -36,7 +47,7 @@ def _exists_l1_has_content():
     sub = (
         select(1)
         .select_from(h.join(ct, ct.c.heading_id == h.c.id))
-        .where(and_(h.c.level == 1, h.c.category_id == t_category.c.id))
+        .where(and_(h.c.level == 1, h.c.category_id == t_category.c.id, ct.c.status == "published"))
         .limit(1)
     )
     return exists(sub)
@@ -52,6 +63,7 @@ def _exists_any_l2_has_content():
               .join(ct2, ct2.c.heading_id == l2.c.id)
         )
         .where(h1.c.category_id == t_category.c.id)
+        .where(ct2.c.status == "published")
         .limit(1)
     )
     return exists(sub)
@@ -64,13 +76,13 @@ def _exists_l1_or_any_child_has_content_for_h(h_alias):
     sub_l1 = (
         select(1)
         .select_from(ct1)
-        .where(ct1.c.heading_id == h_alias.c.id)
+        .where(and_(ct1.c.heading_id == h_alias.c.id, ct1.c.status == "published"))
         .limit(1)
     )
     sub_any_l2 = (
         select(1)
         .select_from(l2.join(ct2, ct2.c.heading_id == l2.c.id))
-        .where(l2.c.parent_heading_id == h_alias.c.id)
+        .where(and_(l2.c.parent_heading_id == h_alias.c.id, ct2.c.status == "published"))
         .limit(1)
     )
     return or_(exists(sub_l1), exists(sub_any_l2))
@@ -80,7 +92,7 @@ def _exists_l2_has_content_for_h(h_alias):
     sub = (
         select(1)
         .select_from(ct)
-        .where(ct.c.heading_id == h_alias.c.id)
+        .where(and_(ct.c.heading_id == h_alias.c.id, ct.c.status == "published"))
         .limit(1)
     )
     return exists(sub)
@@ -168,7 +180,7 @@ async def get_page(category_slug: str, h1_slug: str, h2_slug: str):
              .join(h2, and_(h2.c.parent_heading_id == h1.c.id, h2.c.level == 2))
              .join(ct, ct.c.heading_id == h2.c.id)
         )
-        .where(and_(c.c.slug == category_slug, h1.c.slug == h1_slug, h2.c.slug == h2_slug))
+        .where(and_(c.c.slug == category_slug, h1.c.slug == h1_slug, h2.c.slug == h2_slug, ct.c.status == "published"))
         .limit(1)
     )
     row = await fetch_one(stmt)
@@ -181,7 +193,7 @@ async def list_public_contents(heading_id: UUID = Query(..., description="L1 vey
     ct = t_content.alias("ct")
     stmt = (
         select(ct.c.id, ct.c.heading_id, ct.c.body, ct.c.description)
-        .where(ct.c.heading_id == heading_id)
+        .where(and_(ct.c.heading_id == heading_id, ct.c.status == "published"))
         .order_by(ct.c.created_at.asc())
     )
     return await fetch_all(stmt)
@@ -222,7 +234,7 @@ def _abs_url(request: Request, url: str) -> str:
 @public_router.get("/contents/{id}/images", response_model=List[ContentImageOut])
 async def list_images_by_content_id(id: uuid.UUID, request: Request):
     # content var mı kontrolü
-    ct_stmt = select(t_content.c.id).where(t_content.c.id == id)
+    ct_stmt = select(t_content.c.id).where(and_(t_content.c.id == id, t_content.c.status == "published"))
     ct_row = await fetch_one(ct_stmt)
     if not ct_row:
         raise HTTPException(404, "Content not found")
@@ -269,7 +281,7 @@ async def list_images_by_page(category_slug: str, h1_slug: str, h2_slug: str, re
              .join(h2, and_(h2.c.parent_heading_id == h1.c.id, h2.c.level == 2))
              .join(ct, ct.c.heading_id == h2.c.id)
         )
-        .where(and_(c.c.slug == category_slug, h1.c.slug == h1_slug, h2.c.slug == h2_slug))
+        .where(and_(c.c.slug == category_slug, h1.c.slug == h1_slug, h2.c.slug == h2_slug, ct.c.status == "published"))
         .limit(1)
     )
     ct_row = await fetch_one(ct_stmt)
@@ -304,6 +316,12 @@ async def list_images_by_page(category_slug: str, h1_slug: str, h2_slug: str, re
 
 @public_router.get("/menu", response_model=List[MenuNode])
 async def menu():
+    tenant = get_tenant_context()
+    cache_key = f"{tenant_public_cache_prefix(tenant.id)}menu"
+    cached = await cache_get_json(cache_key)
+    if cached is not None:
+        return cached
+
     cats_stmt = (
         select(
             t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.sort_order
@@ -349,71 +367,190 @@ async def menu():
     menu_all: List[MenuNode] = []
     for c in cats:
         menu_all.extend(sorted(by_cat[c["id"]], key=lambda n: (n["sort_order"], n["title"])))
+    await cache_set_json(cache_key, menu_all, ttl_seconds=120)
     return menu_all
 
-@public_router.get("/search", response_model=List[dict])
-async def search(q: str = Query(..., min_length=2), limit: int = Query(20, ge=1, le=100)):
-    return await fetch_all(
+
+@public_router.get("/docs-index", response_model=List[dict])
+async def docs_index():
+    tenant = get_tenant_context()
+    cache_key = f"{tenant_public_cache_prefix(tenant.id)}docs-index"
+    cached = await cache_get_json(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = await fetch_all(
         """
-        (
-          SELECT 'category'::text AS source_type, c.id AS source_id,
-                 c.name AS matched_text, similarity(c.name::text, :q) AS similarity_score,
-                 NULL::text AS context
-          FROM category c
-          WHERE
-            (
-              EXISTS (SELECT 1 FROM heading h JOIN content ct ON ct.heading_id = h.id
-                      WHERE h.level = 1 AND h.category_id = c.id)
-              OR EXISTS (SELECT 1 FROM heading h1
-                         JOIN heading l2 ON l2.parent_heading_id = h1.id
-                         JOIN content ct2 ON ct2.heading_id = l2.id
-                         WHERE h1.category_id = c.id)
-            )
-            AND (c.name ILIKE '%' || :q || '%' OR c.description ILIKE '%' || :q || '%')
-        )
-        UNION ALL
-        (
-          SELECT 'heading'::text AS source_type, h.id AS source_id, h.title AS matched_text,
-                 similarity(h.title::text, :q) AS similarity_score,
-                 COALESCE(h.description, '') AS context
-          FROM heading h
-          WHERE
-            (
-              (h.level = 1 AND (
-                EXISTS (SELECT 1 FROM content ct WHERE ct.heading_id = h.id)
-                OR EXISTS (SELECT 1 FROM heading l2 JOIN content ct2 ON ct2.heading_id = l2.id
-                           WHERE l2.parent_heading_id = h.id)
-              ))
-              OR
-              (h.level = 2 AND EXISTS (SELECT 1 FROM content ct WHERE ct.heading_id = h.id))
-            )
-            AND (h.title ILIKE '%' || :q || '%' OR h.description ILIKE '%' || :q || '%')
-        )
-        UNION ALL
-        (
-          SELECT 'content'::text AS source_type, ct.id AS source_id,
-                 CASE WHEN length(ct.body) > 200 THEN substring(ct.body FROM 1 FOR 200) || '…' ELSE ct.body END AS matched_text,
-                 similarity(ct.body, :q) AS similarity_score,
-                 CASE 
-                   WHEN position(lower(:q) in lower(ct.body)) > 0 THEN 
-                     substring(ct.body from GREATEST(position(lower(:q) in lower(ct.body)) - 60, 1) for 160)
-                   ELSE substring(ct.body from 1 for 160)
-                 END AS context
-          FROM content ct
-          WHERE (ct.body ILIKE '%' || :q || '%' OR ct.description ILIKE '%' || :q || '%')
-        )
-        ORDER BY similarity_score DESC
-        LIMIT :limit
-        """,
-        {"q": q, "limit": limit},
+        SELECT
+          c.id AS category_id,
+          c.name::text AS category_name,
+          c.slug AS category_slug,
+          c.sort_order AS category_sort_order,
+          h1.id AS h1_id,
+          h1.title::text AS h1_title,
+          h1.slug AS h1_slug,
+          h1.sort_order AS h1_sort_order,
+          h2.id AS h2_id,
+          h2.title::text AS h2_title,
+          h2.slug AS h2_slug,
+          h2.sort_order AS h2_sort_order
+        FROM category c
+        JOIN heading h1 ON h1.category_id = c.id AND h1.level = 1
+        LEFT JOIN heading h2 ON h2.parent_heading_id = h1.id AND h2.level = 2
+        WHERE
+          EXISTS (SELECT 1 FROM content ct WHERE ct.heading_id = h1.id AND ct.status = 'published')
+          OR EXISTS (SELECT 1 FROM content ct WHERE ct.heading_id = h2.id AND ct.status = 'published')
+        ORDER BY c.sort_order, c.name, h1.sort_order, h1.title, h2.sort_order, h2.title
+        """
     )
+    categories: dict[str, dict] = {}
+    for row in rows:
+        category = categories.setdefault(
+            str(row["category_id"]),
+            {
+                "id": str(row["category_id"]),
+                "name": row["category_name"],
+                "slug": row["category_slug"],
+                "sort_order": row["category_sort_order"],
+                "headings": {},
+            },
+        )
+        heading = category["headings"].setdefault(
+            str(row["h1_id"]),
+            {
+                "id": str(row["h1_id"]),
+                "title": row["h1_title"],
+                "slug": row["h1_slug"],
+                "sort_order": row["h1_sort_order"],
+                "children": [],
+            },
+        )
+        if row["h2_id"]:
+            heading["children"].append(
+                {
+                    "id": str(row["h2_id"]),
+                    "title": row["h2_title"],
+                    "slug": row["h2_slug"],
+                    "sort_order": row["h2_sort_order"],
+                }
+            )
+    result = [
+        {**category, "headings": list(category["headings"].values())}
+        for category in categories.values()
+    ]
+    await cache_set_json(cache_key, result, ttl_seconds=120)
+    return result
+
+@public_router.get("/search", response_model=List[dict])
+async def search(
+    request: Request,
+    q: str = Query(..., min_length=2),
+    limit: int = Query(20, ge=1, le=100),
+    category_slug: str | None = Query(None),
+    h1_slug: str | None = Query(None),
+    h2_slug: str | None = Query(None),
+):
+    tenant = get_tenant_context()
+    await enforce_rate_limit(
+        request,
+        scope="public-search",
+        limit=tenant.search_rate_limit,
+        tenant_slug=tenant.slug,
+    )
+    results = await search_tenant(
+        tenant,
+        q,
+        limit,
+        category_slug=category_slug,
+        h1_slug=h1_slug,
+        h2_slug=h2_slug,
+    )
+    await record_search_event(
+        tenant,
+        query=q,
+        source="public",
+        result_count=len(results),
+        filters={
+            "category_slug": category_slug,
+            "h1_slug": h1_slug,
+            "h2_slug": h2_slug,
+        },
+    )
+    return results
+
+
+@public_router.get("/search/suggest", response_model=List[str])
+async def search_suggest(
+    request: Request,
+    q: str = Query(..., min_length=1),
+    limit: int = Query(8, ge=1, le=20),
+    category_slug: str | None = Query(None),
+):
+    tenant = get_tenant_context()
+    await enforce_rate_limit(
+        request,
+        scope="public-search-suggest",
+        limit=tenant.search_rate_limit,
+        tenant_slug=tenant.slug,
+    )
+    suggestions = await suggest_tenant(tenant, q, limit, category_slug=category_slug)
+    await record_search_event(
+        tenant,
+        query=q,
+        source="suggest",
+        result_count=len(suggestions),
+        filters={"category_slug": category_slug},
+    )
+    return suggestions
+
+
+@public_router.get("/seo/pages")
+async def seo_pages():
+    tenant = get_tenant_context()
+    return {
+        "limit": tenant.max_seo_pages,
+        "urls": await tenant_seo_urls(tenant),
+    }
+
+
+@public_router.post("/feedback", status_code=201)
+async def create_feedback(payload: FeedbackIn, request: Request):
+    tenant = get_tenant_context()
+    await enforce_rate_limit(
+        request,
+        scope="public-feedback",
+        limit=tenant.public_rate_limit,
+        tenant_slug=tenant.slug,
+    )
+    await platform_execute(
+        """
+        INSERT INTO public.feedback_event (tenant_id, url, rating, message, user_agent, ip)
+        VALUES (:tenant_id, :url, :rating, :message, :user_agent, CAST(:ip AS inet))
+        """,
+        {
+            "tenant_id": tenant.id,
+            "url": payload.url,
+            "rating": payload.rating,
+            "message": payload.message,
+            "user_agent": request.headers.get("user-agent", "")[:500],
+            "ip": request.client.host if request.client else None,
+        },
+    )
+    return {"ok": True}
 
 
 @public_router.get("/settings")
 async def get_site_settings():
+    tenant = get_tenant_context()
+    cache_key = f"{tenant_public_cache_prefix(tenant.id)}settings"
+    cached = await cache_get_json(cache_key)
+    if cached is not None:
+        return cached
+
     rows = await fetch_all("SELECT key, value FROM site_setting")
     settings = {row["key"]: row["value"] for row in rows}
     # Ensure default values exist in return
     if "site_title" not in settings: settings["site_title"] = "Fastapi"
     if "site_logo" not in settings: settings["site_logo"] = ""
+    await cache_set_json(cache_key, settings, ttl_seconds=300)
     return settings

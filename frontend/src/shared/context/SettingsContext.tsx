@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { PublicApi } from "../api/public";
+
+function toPublicUrl(url: string): string {
+  const m = url.match(/^https?:\/\/[^/]+(:\d+)?(\/api\/.+)$/);
+  return m ? m[2] : url;
+}
 
 interface SettingsContextVal {
   siteTitle: string;
@@ -14,7 +18,6 @@ const SettingsContext = createContext<SettingsContextVal | null>(null);
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const location = useLocation();
   const [siteTitle, setSiteTitle] = useState("Fastapi");
   const [siteLogo, setSiteLogo] = useState("");
   const [loading, setLoading] = useState(true);
@@ -24,7 +27,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       const res = await PublicApi.settings();
       if (res) {
         setSiteTitle(res.site_title || "Fastapi");
-        setSiteLogo(res.site_logo || "");
+        setSiteLogo(res.site_logo ? toPublicUrl(res.site_logo) : "");
       }
     } catch (error) {
       console.error("Failed to load site settings", error);
@@ -36,7 +39,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     setLoading(true);
     fetchSettings();
-  }, [location.pathname]);
+  }, []);
 
   return (
     <SettingsContext.Provider value={{ siteTitle, siteLogo, loading, reload: fetchSettings }}>

@@ -1,35 +1,16 @@
+"use client";
+
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../shared/components/LanguageSwitcher';
-
-// FlashIcon component for login logo
-function FlashIcon({ className = "w-6 h-6" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <path
-        d="M13 5L8 13h3l-1 6 6-9h-3l1-5z"
-        fill="#000"
-      />
-    </svg>
-  );
-}
-
-"use client";
+import { AlertTriangle, CheckCircle2, Edit3, Globe2, Moon, Sun, X, Zap } from "lucide-react";
 
 // frontend/src/admin/App.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import ContentImageManager from "./components/ContentImageManager";
-import CreateCategoryForm from "./components/CreateCategoryForm";
-import CreateH1Form from "./components/CreateH1Form";
-import CreateH2Form from "./components/CreateH2Form";
-import CreateContentForm from "./components/CreateContentForm";
-import CreateAdminForm from "./components/CreateAdminForm";
+import AdminBottomNav from "./components/AdminBottomNav";
+import AdminBillingPanel from "./components/AdminBillingPanel";
+import AdminContentHealth from "./components/AdminContentHealth";
+import AdminSearchInsights from "./components/AdminSearchInsights";
+import AdminUsageBar from "./components/AdminUsageBar";
 
 import { useAdminAuth } from "../shared/hooks/useAdminAuth";
 import {
@@ -39,6 +20,7 @@ import {
   HeadingsApi,
   ContentsApi,
   ContentImagesApi,
+  AdminUsageApi,
 } from "../shared/api/admin";
 
 import type {
@@ -60,33 +42,18 @@ interface TempImageData {
   height?: number;
 }
 
-function cx(...c: (string | false | undefined)[]) {
-  return c.filter(Boolean).join(" ");
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escaped}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
-// Boş string → null (API'nin alanı temizlemesi için)
 const toUndef = (s: string | null | undefined) => {
 
   const v = (s ?? "").trim();
   return v === "" ? null : v;
 };
-
-const sectionCard =
-  "group relative rounded-3xl border border-gray-200/40 dark:border-gray-800/40 " +
-  "bg-gradient-to-br from-white/95 via-gray-50/90 to-gray-100/80 " +
-  "dark:from-gray-900/95 dark:via-gray-900/90 dark:to-gray-950/80 " +
-  "p-8 transition-all duration-500 backdrop-blur-xl " +
-  "hover:shadow-2xl hover:shadow-emerald-800/20 hover:border-emerald-700/50 " +
-  "hover:scale-[1.01] hover:-translate-y-1";
-
-const itemCard =
-  "relative p-6 rounded-2xl border border-gray-200/50 dark:border-gray-800/50 " +
-  "bg-gradient-to-r from-white/90 via-gray-50/80 to-gray-100/70 " +
-  "dark:from-gray-900/90 dark:via-gray-900/80 dark:to-gray-950/70 " +
-  "transition-all duration-300 backdrop-blur-sm " +
-  "hover:scale-[1.02] hover:shadow-xl hover:shadow-emerald-800/25 " +
-  "hover:ring-2 hover:ring-emerald-700/50 hover:border-emerald-700/70 " +
-  "hover:-translate-y-0.5 group";
 
 import { useSettings } from "../shared/context/SettingsContext";
 import AdminLogin from './views/AdminLogin';
@@ -95,14 +62,17 @@ import HeadingsView from './views/HeadingsView';
 import ContentsView from './views/ContentsView';
 import AdminUsersView from './views/AdminUsersView';
 
-export default function App() {
+export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   const { t } = useTranslation();
   const { siteTitle, siteLogo, reload: reloadSettings } = useSettings();
-  const { tenantSlug = "" } = useParams();
+  const impersonationWarning = useMemo(() => {
+    if (!tenantSlug) return null;
+    return readCookie(`adm_impersonation_${tenantSlug.replace(/-/g, "_")}`);
+  }, [tenantSlug]);
 
   // theme
   const [theme, setTheme] = useState<"light" | "dark">(
-    (localStorage.getItem("theme") as any) || "dark"
+    (typeof window !== "undefined" ? (localStorage.getItem("theme") as any) : null) || "dark"
   );
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -144,6 +114,7 @@ export default function App() {
   const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [contentImages, setContentImages] = useState<any[]>([]);
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
+  const [usage, setUsage] = useState<any>(null);
 
   // fetchers
   const fetchCats = () => CategoriesApi.list().then(setCats);
@@ -156,6 +127,7 @@ export default function App() {
     return ContentsApi.list(headingId).then(setContents);
   };
   const fetchAdmins = () => AdminUsersApi.list().then(setAdmins);
+  const fetchUsage = () => AdminUsageApi.get().then(setUsage);
 
   // L1 seçilince içerik önizleme
   useEffect(() => {
@@ -175,6 +147,7 @@ export default function App() {
       .then(() => {
         fetchCats();
         fetchAdmins();
+        fetchUsage().catch(() => {});
       })
       .catch(() => {});
   }, [token]);
@@ -250,7 +223,7 @@ export default function App() {
       await fetchCats();
       showNotification(t("category_added"), "success");
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || "Hata";
+      const msg = err?.response?.data?.detail || err?.message || t("error");
       if (String(err?.response?.status) === "409") {
         showNotification(t("category_exists"), "error");
       } else {
@@ -310,23 +283,27 @@ export default function App() {
     const confirmed = await showConfirm(t("delete_title"), t("delete_title_desc"));
     if (!confirmed) return;
 
-    // ✅ Optimistic
+    const deletingActiveL1 = activeH1?.id === id;
+
     setH1s((prev) => prev.filter((h) => h.id !== id));
-    setH2s((prev) => prev.filter((h) => h.id !== id));
 
-    // L1 seçiliyse temizle
-    if (activeH1?.id === id) setActiveH1(null);
-
-    // İçerik panelinde bu başlık açık ise temizle
-    if (currentHeadingId === id) {
-      setCurrentHeadingId(null);
+    if (deletingActiveL1) {
+      // L1 silinince DB cascade ile tüm H2'ler ve içerikler de silinir
+      setActiveH1(null);
+      setH2s([]);
       setContents([]);
+      setCurrentHeadingId(null);
+    } else {
+      setH2s((prev) => prev.filter((h) => h.id !== id));
+      if (currentHeadingId === id) {
+        setCurrentHeadingId(null);
+        setContents([]);
+      }
     }
 
     try {
       await HeadingsApi.remove(id);
     } finally {
-      // Listeyi tekrar senkronize et
       if (activeCat) fetchH1s(activeCat.id).catch(() => {});
     }
   }
@@ -335,13 +312,15 @@ export default function App() {
     headingId: UUID,
     body: string,
     images: TempImageData[],
-    description?: string
+    description?: string,
+    status: "draft" | "published" = "published"
   ) {
     try {
       const newContent = await ContentsApi.create({
         heading_id: headingId,
         body,
         description: toUndef(description),
+        status,
       });
 
       if (images.length > 0) {
@@ -517,7 +496,7 @@ export default function App() {
     const pw = await showPrompt(t("change_password"), "", t("new_password_colon"));
     if (!pw) return;
     await AdminUsersApi.changePw(id, pw);
-    await showAlert("Başarılı", "Şifre güncellendi");
+    await showAlert(t("success"), t("password_updated"));
   }
 
   const hasMainHeadingContent = useMemo(
@@ -550,7 +529,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100/50 via-white to-gray-200/30 dark:from-gray-950 dark:via-gray-900 dark:to-gray-800/20">
+    <div className="min-h-screen bg-gradient-to-br from-gray-100/50 via-white to-gray-200/30 dark:from-gray-950 dark:via-gray-900 dark:to-gray-800/20 pb-20 md:pb-0">
       {notification && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div
@@ -571,21 +550,22 @@ export default function App() {
             }}
           >
             <div className="flex items-center gap-4">
-              <span className="text-2xl">
-                {notification.type === "error"
-                  ? "⚠️"
-                  : notification.type === "warning"
-                  ? "⚡"
-                  : "✅"}
-              </span>
+              {notification.type === "error" ? (
+                <AlertTriangle className="h-6 w-6 shrink-0" />
+              ) : notification.type === "warning" ? (
+                <Zap className="h-6 w-6 shrink-0" />
+              ) : (
+                <CheckCircle2 className="h-6 w-6 shrink-0" />
+              )}
               <p className="font-medium text-base flex-1">
                 {notification.message}
               </p>
               <button
                 onClick={() => setNotification(null)}
                 className="ml-2 text-xl hover:opacity-70 transition-opacity"
+                aria-label={t("close")}
               >
-                ×
+                <X className="h-5 w-5" />
               </button>
             </div>
           </div>
@@ -621,7 +601,7 @@ export default function App() {
                   <textarea
                     defaultValue={modal.defaultValue}
                     className="w-full flex-1 px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none mb-4 resize-none font-mono text-sm"
-                    placeholder="Markdown içeriğinizi buraya yazın..."
+                    placeholder={t("content_placeholder")}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") {
                         modal.onCancel?.();
@@ -657,7 +637,6 @@ export default function App() {
               <button
                 onClick={() => {
                   if (modal.type === "prompt") {
-                    /* Hem input hem textarea için çalışacak şekilde güncellendi */
                     const input = document.querySelector(
                       'input[type="text"]'
                     ) as HTMLInputElement;
@@ -678,14 +657,23 @@ export default function App() {
         </div>
       )}
 
+      {impersonationWarning && (
+        <div className="sticky top-0 z-50 border-b border-amber-300 bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+          {t("impersonation_warning", {
+            defaultValue: "Platform owner impersonation is active: {{reason}}",
+            reason: impersonationWarning,
+          })}
+        </div>
+      )}
+
       <header className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-xl border-b border-emerald-600/30">
         <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-600/70 to-transparent" />
 
-        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
-          <div className="flex items-center gap-4 group">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4 group">
             <div className="relative">
               <div className="absolute inset-0 rounded-3xl blur-xl bg-emerald-600/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="relative inline-flex items-center justify-center w-14 h-14 rounded-3xl bg-gradient-to-br from-emerald-700 to-emerald-800 ring-2 ring-emerald-600/40 shadow-xl group-hover:scale-105 group-hover:rotate-3 transition-all duration-300 overflow-hidden">
+              <div className="relative inline-flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-emerald-700 to-emerald-800 ring-2 ring-emerald-600/40 shadow-xl group-hover:scale-105 group-hover:rotate-3 transition-all duration-300 overflow-hidden">
                 {siteLogo ? (
                   <img src={siteLogo} alt="Site Logo" className="w-full h-full object-cover" />
                 ) : (
@@ -700,29 +688,28 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-3">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2 truncate">
                   {siteTitle}
                 </h1>
                 <p className="text-xs text-emerald-300 -mt-0.5 font-medium">
-                  Admin Dashboard
+                  {t("admin_dashboard")}
                 </p>
               </div>
               <button
                 onClick={async () => {
-                  const newTitle = await showPrompt(t('site_title_prompt') || 'Site Title', siteTitle);
+                  const newTitle = await showPrompt(t('site_title_prompt'), siteTitle);
                   if (newTitle && newTitle !== siteTitle) {
                     try {
                       await AdminSettingsApi.updateSettings({ site_title: newTitle });
                       reloadSettings();
-                      showNotification(t('site_title_success') || 'Site title updated!', 'success');
+                      showNotification(t('site_title_success'), 'success');
                     } catch (e) {
-                      showNotification(t('site_title_error') || 'Error updating site title', 'error');
+                      showNotification(t('site_title_error'), 'error');
                     }
                   }
                   
-                  // Ask for logo change
-                  const uploadLogo = await showPrompt(t('upload_logo_prompt') || 'Upload Logo?', 'yes', t('upload_logo_desc') || 'Type "yes" to upload a new logo next');
+                  const uploadLogo = await showPrompt(t('upload_logo_prompt'), 'yes', t('upload_logo_desc'));
                   if (uploadLogo?.toLowerCase() === 'yes') {
                     const input = document.createElement('input');
                     input.type = 'file';
@@ -735,50 +722,50 @@ export default function App() {
                       try {
                         await AdminSettingsApi.uploadSiteLogo(formData);
                         reloadSettings();
-                        showNotification(t('site_logo_success') || 'Site logo updated!', 'success');
+                        showNotification(t('site_logo_success'), 'success');
                       } catch (err) {
-                        showNotification(t('site_logo_error') || 'Error updating site logo', 'error');
+                        showNotification(t('site_logo_error'), 'error');
                       }
                     };
                     input.click();
                   }
                 }}
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-emerald-300 hover:text-white transition-colors"
-                title={t('edit_site_title_logo') || "Edit Site Title & Logo"}
+                title={t('edit_site_title_logo')}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.89 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.89l3.4-3.4M16.862 4.487L19.5 7.125" />
-                </svg>
+                <Edit3 className="h-4 w-4" />
               </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 md:w-auto md:gap-4">
             <a
               href={`/d/${tenantSlug}`}
-              className="px-6 py-3 rounded-2xl text-sm font-bold text-white
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-bold text-white md:flex-none sm:px-6
                          ring-2 ring-emerald-500/60 hover:ring-emerald-400
                          bg-emerald-600/30 hover:bg-emerald-600/40
                          shadow-lg hover:shadow-emerald-600/40
                          hover:scale-105 transition-all duration-300"
             >
-              🌐 {t('public_site')}
+              <Globe2 className="h-4 w-4" />
+              {t('public_site')}
             </a>
 
             <LanguageSwitcher />
             <button
               onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-              className="px-6 py-3 rounded-2xl text-sm font-bold text-white
+              className="min-h-11 px-4 sm:px-6 py-3 rounded-2xl text-sm font-bold text-white
                          bg-gradient-to-r from-emerald-700 to-emerald-600
                          shadow-lg hover:shadow-xl hover:shadow-emerald-600/50
                          hover:scale-105 transition-all duration-300"
+              aria-label={theme === "dark" ? t("dark_mode") : t("light_mode")}
             >
-              {theme === "dark" ? "🌙" : "☀️"}
+              {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             </button>
 
             <button
               onClick={logout}
-              className="px-6 py-3 rounded-2xl text-sm font-bold text-white
+              className="min-h-11 px-4 sm:px-6 py-3 rounded-2xl text-sm font-bold text-white
                          ring-2 ring-white/20 hover:ring-rose-400/60 
                          bg-white/10 hover:bg-rose-500/20
                          hover:text-rose-200 hover:scale-105 transition-all duration-300"
@@ -789,67 +776,85 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-10 space-y-10">
-        <CategoriesView
-          cats={cats}
-          activeCat={activeCat}
-          setActiveCat={setActiveCat}
-          setActiveH1={setActiveH1}
-          setH2s={setH2s}
-          setContents={setContents}
-          setCurrentHeadingId={setCurrentHeadingId}
-          fetchH1s={fetchH1s}
-          showPrompt={showPrompt}
-          updateCategory={updateCategory}
-          deleteCategory={deleteCategory}
-          createCategory={createCategory}
-        />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8 sm:space-y-10">
+        <AdminUsageBar usage={usage} />
+
+        <AdminBillingPanel usage={usage} />
+
+        <AdminContentHealth />
+
+        <AdminSearchInsights />
+
+        <section id="admin-categories" className="scroll-mt-32">
+          <CategoriesView
+            cats={cats}
+            activeCat={activeCat}
+            setActiveCat={setActiveCat}
+            setActiveH1={setActiveH1}
+            setH2s={setH2s}
+            setContents={setContents}
+            setCurrentHeadingId={setCurrentHeadingId}
+            fetchH1s={fetchH1s}
+            showPrompt={showPrompt}
+            updateCategory={updateCategory}
+            deleteCategory={deleteCategory}
+            createCategory={createCategory}
+          />
+        </section>
 
         {/* HEADINGS */}
-        <HeadingsView
-          activeCat={activeCat}
-          activeH1={activeH1}
-          setActiveH1={setActiveH1}
-          h1s={h1s}
-          h2s={h2s}
-          setH2s={setH2s}
-          setContents={setContents}
-          contents={contents}
-          setCurrentHeadingId={setCurrentHeadingId}
-          fetchH2s={fetchH2s}
-          fetchContentsByHeading={fetchContentsByHeading}
-          showPrompt={showPrompt}
-          updateHeading={updateHeading}
-          deleteHeading={deleteHeading}
-          createH1={createH1}
-          createH2={createH2}
-        />
+        <section id="admin-headings" className="scroll-mt-32">
+          <HeadingsView
+            activeCat={activeCat}
+            activeH1={activeH1}
+            setActiveH1={setActiveH1}
+            h1s={h1s}
+            h2s={h2s}
+            setH2s={setH2s}
+            setContents={setContents}
+            contents={contents}
+            setCurrentHeadingId={setCurrentHeadingId}
+            fetchH2s={fetchH2s}
+            fetchContentsByHeading={fetchContentsByHeading}
+            showPrompt={showPrompt}
+            updateHeading={updateHeading}
+            deleteHeading={deleteHeading}
+            createH1={createH1}
+            createH2={createH2}
+          />
+        </section>
 
         {/* CONTENTS */}
-        <ContentsView
-          currentHeadingId={currentHeadingId}
-          selectedContent={selectedContent}
-          setSelectedContent={setSelectedContent}
-          showNotification={showNotification}
-          contents={contents}
-          activeH1={activeH1}
-          h1s={h1s}
-          h2s={h2s}
-          fetchContentsByHeading={fetchContentsByHeading}
-          showPrompt={showPrompt}
-          showConfirm={showConfirm}
-          createContent={createContent}
-        />
+        <section id="admin-contents" className="scroll-mt-32">
+          <ContentsView
+            currentHeadingId={currentHeadingId}
+            selectedContent={selectedContent}
+            setSelectedContent={setSelectedContent}
+            showNotification={showNotification}
+            contents={contents}
+            activeH1={activeH1}
+            h1s={h1s}
+            h2s={h2s}
+            fetchContentsByHeading={fetchContentsByHeading}
+            showPrompt={showPrompt}
+            showConfirm={showConfirm}
+            createContent={createContent}
+          />
+        </section>
 
         {/* ADMIN USERS */}
-        <AdminUsersView
-          admins={admins}
-          changeAdminPassword={changeAdminPassword}
-          deleteAdmin={deleteAdmin}
-          createAdmin={createAdmin}
-          showNotification={showNotification}
-        />
+        <section id="admin-users" className="scroll-mt-32">
+          <AdminUsersView
+            admins={admins}
+            changeAdminPassword={changeAdminPassword}
+            deleteAdmin={deleteAdmin}
+            createAdmin={createAdmin}
+            showNotification={showNotification}
+          />
+        </section>
       </main>
+
+      <AdminBottomNav />
     </div>
   );
 }

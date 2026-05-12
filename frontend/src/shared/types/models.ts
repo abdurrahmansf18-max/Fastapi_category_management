@@ -29,6 +29,8 @@ export interface Content {
   heading_id: UUID;
   body: string;
   description?: string | null;
+  status: "draft" | "published";
+  published_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,5 +55,5 @@ export interface AdminUser {
 
 export interface TokenOut {
   access_token: string;
-  token_type: "bearer";
+  token_type: "cookie";
 }

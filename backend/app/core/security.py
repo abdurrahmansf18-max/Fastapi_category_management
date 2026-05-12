@@ -1,38 +1,51 @@
 import uuid
 import jwt
 from datetime import datetime
+from datetime import timedelta
 from typing import Optional, Dict, Any
-from fastapi import Depends, HTTPException, Path, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import HTTPException, Path, Request, status
 from passlib.context import CryptContext
 
 from app.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_DELTA
+from app.core.csrf import admin_csrf_cookie_name, admin_session_cookie_name, validate_admin_csrf
+from app.core.sessions import validate_admin_session
 from app.db.session import platform_fetch_one
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/t/{tenant_slug}/admin/login")
 
-def create_access_token(data: Dict[str, Any], expires_delta: Optional[datetime]  = None) -> str:
+def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]  = None) -> str:
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or ACCESS_TOKEN_EXPIRE_DELTA)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_admin(
+    request: Request,
     tenant_slug: str = Path(...),
-    token: str = Depends(oauth2_scheme),
 ):
     cred_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
-        headers={"WWW-Authenticate": "Bearer"},
     )
+    tenant_exc = HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Tenant session does not match this workspace",
+    )
+    token = request.cookies.get(admin_session_cookie_name(tenant_slug))
+    if not token:
+        raise cred_exc
+
+    validate_admin_csrf(request, tenant_slug)
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         uid: str | None = payload.get("uid") or payload.get("user_id")
         token_tenant_slug: str | None = payload.get("tenant_slug")
-        if uid is None or token_tenant_slug != tenant_slug:
+        token_type: str | None = payload.get("typ")
+        if uid is None or token_type not in {None, "admin_access"}:
             raise cred_exc
+        if token_tenant_slug != tenant_slug:
+            raise tenant_exc
     except jwt.PyJWTError:
         raise cred_exc
 
@@ -57,10 +70,19 @@ async def get_current_admin(
     )
     if not row:
         raise cred_exc
+    session = await validate_admin_session(
+        tenant_id=str(row["tenant_id"]),
+        user_id=str(row["id"]),
+        access_token=token,
+        csrf_token=request.cookies.get(admin_csrf_cookie_name(tenant_slug)),
+    )
     return {
         "id": str(row["id"]),
         "email": row["email"],
         "role": row["role"],
         "tenant_id": str(row["tenant_id"]),
         "tenant_slug": row["tenant_slug"],
+        "session_id": str(session["id"]),
+        "impersonated_by": payload.get("impersonated_by"),
+        "impersonation_reason": payload.get("impersonation_reason"),
     }

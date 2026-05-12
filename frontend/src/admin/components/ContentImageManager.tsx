@@ -6,6 +6,7 @@ import { ContentImagesApi } from "../../shared/api/admin";
 import type { UUID, ContentImage } from "../../shared/types/models";
 import type { ContentImageCreateDTO } from "../../shared/types/dto";
 import { useTranslation } from "react-i18next";
+import { Camera, FolderOpen, ImageIcon } from "lucide-react";
 
 interface ContentImageManagerProps {
   contentId: UUID;
@@ -34,14 +35,6 @@ function ResizableImage({ image, onSizeChange }: ResizableImageProps) {
 
   useEffect(() => {
     if (!isResizing && !manuallyResized.current) {
-      console.log("[v0] Syncing dimensions from database:", {
-        imageId: image.id,
-        dbWidth: image.width,
-        dbHeight: image.height,
-        currentWidth: dimensions.width,
-        currentHeight: dimensions.height,
-      });
-
       const newDimensions = {
         width: image.width || 200,
         height: image.height || 150,
@@ -80,10 +73,6 @@ function ResizableImage({ image, onSizeChange }: ResizableImageProps) {
 
     setIsResizing(false);
     manuallyResized.current = true;
-    console.log("[v0] Manual resize completed:", {
-      width: dimensions.width,
-      height: dimensions.height,
-    });
     onSizeChange(dimensions.width, dimensions.height);
 
     document.removeEventListener("mousemove", handleMouseMove);
@@ -185,29 +174,9 @@ export default function ContentImageManager({
   const fetchImages = async () => {
     try {
       setLoading(true);
-      console.log("[v0] Fetching images for contentId:", contentId);
-      console.log("[v0] API call details:", {
-        endpoint: `/admin/content-images/${contentId}`,
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("admin_token")}`,
-        },
-      });
       const data = await ContentImagesApi.list(contentId);
-      console.log("[v0] Fetched images:", data);
-      console.log(
-        "[v0] Response type:",
-        typeof data,
-        "Array?",
-        Array.isArray(data)
-      );
       setImages(data);
     } catch (error) {
-      console.log("[v0] Fetch images error:", error);
-      if (error instanceof Error) {
-        console.log("[v0] Error message:", error.message);
-        console.log("[v0] Error stack:", error.stack);
-      }
       onNotification(t("image_add_error"), "error");
     } finally {
       setLoading(false);
@@ -227,12 +196,6 @@ export default function ContentImageManager({
     if (selectedFile) {
       try {
         setUploading(true);
-        console.log("[v0] Starting file upload:", {
-          fileName: selectedFile.name,
-          fileSize: selectedFile.size,
-          contentId: contentId,
-        });
-
         const uploadedImage = await ContentImagesApi.upload(
           selectedFile,
           contentId,
@@ -241,8 +204,6 @@ export default function ContentImageManager({
           newImage.width,
           newImage.height
         );
-
-        console.log("[v0] Upload successful:", uploadedImage);
 
         setSelectedFile(null);
         setNewImage({
@@ -338,12 +299,6 @@ export default function ContentImageManager({
         return;
       }
 
-      console.log("[v0] File selected:", {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      });
-
       setSelectedFile(file);
       setNewImage((prev) => ({ ...prev, url: "" }));
     }
@@ -355,10 +310,7 @@ export default function ContentImageManager({
     height: number
   ) => {
     try {
-      console.log("[v0] Updating image size:", { imageId, width, height });
       await ContentImagesApi.update(imageId, { width, height });
-      console.log("[v0] API update successful");
-
       setImages((prevImages) =>
         prevImages.map((img) =>
           img.id === imageId ? { ...img, width, height } : img
@@ -367,7 +319,6 @@ export default function ContentImageManager({
 
       onNotification(t("image_size_updated"), "success");
     } catch (error) {
-      console.log("[v0] API update failed:", error);
       onNotification(t("image_size_update_error"), "error");
       await fetchImages();
     }
@@ -376,7 +327,7 @@ export default function ContentImageManager({
   return (
     <div className="space-y-4">
       <div className="font-semibold text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-        <span className="text-blue-600 dark:text-blue-400">🖼️</span>{t("content_images")}</div>
+        <ImageIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />{t("content_images")}</div>
 
       <form
         onSubmit={handleAddImage}
@@ -412,7 +363,8 @@ export default function ContentImageManager({
                 htmlFor="file-input"
                 className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer transition-colors text-sm font-medium"
               >
-                📁 {t("select_from_computer")}
+                <FolderOpen className="mr-1 inline h-4 w-4" />
+                {t("select_from_computer")}
               </label>
               {selectedFile && (
                 <span className="text-sm text-green-600 dark:text-green-400">
@@ -537,7 +489,7 @@ export default function ContentImageManager({
               !selectedFile && (
                 <div className="aspect-video rounded-lg bg-gray-100 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center">
                   <div className="text-center text-gray-400 dark:text-gray-600 text-xs">
-                    <div className="text-2xl mb-1">📷</div>
+                    <Camera className="mx-auto mb-1 h-6 w-6" />
                     <div>{t("preview")}</div>
                   </div>
                 </div>

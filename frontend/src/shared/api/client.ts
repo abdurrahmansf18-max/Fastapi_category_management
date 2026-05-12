@@ -1,6 +1,7 @@
 // frontend/src/shared/api/client.ts
 export const API_BASE: string =
-  (import.meta as any).env?.VITE_API_BASE ?? "/api";
+  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_BASE) ||
+  "/api";
 
 export function getTenantSlug(): string | null {
   try {
@@ -11,9 +12,27 @@ export function getTenantSlug(): string | null {
   }
 }
 
-function tokenKey(): string {
+function tenantCookieSuffix(): string | null {
   const slug = getTenantSlug();
-  return slug ? `adm_token:${slug}` : "adm_token";
+  return slug ? slug.replace(/-/g, "_") : null;
+}
+
+function readCookie(name: string): string | null {
+  try {
+    const found = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${name}=`));
+    return found ? decodeURIComponent(found.slice(name.length + 1)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function csrfToken(): string | null {
+  const suffix = tenantCookieSuffix();
+  if (!suffix) return readCookie("platform_csrf");
+  return readCookie(`adm_csrf_${suffix}`);
 }
 
 function scopedPath(path: string): string {
@@ -32,20 +51,10 @@ function scopedPath(path: string): string {
 
 /* -------- Token helpers -------- */
 export function getAdminToken(): string | null {
-  try {
-    return localStorage.getItem(tokenKey());
-  } catch {
-    return null;
-  }
+  return csrfToken() ? "cookie-session" : null;
 }
 export function setAdminToken(tok: string | null) {
-  try {
-    const key = tokenKey();
-    if (tok) localStorage.setItem(key, tok);
-    else localStorage.removeItem(key);
-  } catch {
-    /* noop */
-  }
+  void tok;
 }
 
 /* Geriye dönük alias */
@@ -80,14 +89,14 @@ export type RequestOptions = Omit<RequestInit, "headers" | "body"> & {
 
 function buildHeaders(
   h?: Record<string, string> | Headers,
-  auth = true
+  auth = true,
+  method = "GET"
 ): Headers {
   const headers = new Headers(h instanceof Headers ? h : h ?? {});
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
-  if (auth) {
-    const tok = getAdminToken();
-    if (tok && !headers.has("Authorization"))
-      headers.set("Authorization", `Bearer ${tok}`);
+  if (auth && !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) {
+    const csrf = csrfToken();
+    if (csrf && !headers.has("X-CSRF-Token")) headers.set("X-CSRF-Token", csrf);
   }
   return headers;
 }
@@ -108,6 +117,9 @@ async function handleResponse<T>(res: Response, expect?: Expect): Promise<T> {
   if (res.status === 401) {
     setAdminToken(null);
     throw new Error("Unauthorized");
+  }
+  if (res.status === 403 && getTenantSlug() && res.url.includes("/admin")) {
+    setAdminToken(null);
   }
   if (!res.ok) {
     // 1) JSON dene ve FastAPI detail çıkar
@@ -164,9 +176,15 @@ export async function request<T = any>(
   opts: RequestOptions = {}
 ): Promise<T> {
   const { json, auth = true, expect, headers: extraHeaders, ...rest } = opts;
-  const headers = buildHeaders(extraHeaders, auth);
+  const method = rest.method || "GET";
+  const headers = buildHeaders(extraHeaders, auth, method);
   const { body } = toBodyAndHeaders(headers, json);
-  const res = await fetch(`${API_BASE}${scopedPath(path)}`, { ...rest, headers, body });
+  const res = await fetch(`${API_BASE}${scopedPath(path)}`, {
+    ...rest,
+    headers,
+    body,
+    credentials: "include",
+  });
   return handleResponse<T>(res, expect);
 }
 

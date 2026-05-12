@@ -8,18 +8,21 @@ export const toUndef = (s: string | null | undefined) => {
 };
 
 export const sectionCard =
-  "group relative rounded-3xl border border-gray-200/40 dark:border-gray-800/40 " +
-  "bg-gradient-to-br from-white/95 via-gray-50/90 to-gray-100/80 " +
-  "dark:from-gray-900/95 dark:via-gray-900/90 dark:to-gray-950/80 " +
-  "p-8 transition-all duration-500 backdrop-blur-xl " +
-  "hover:shadow-2xl hover:shadow-emerald-800/20 hover:border-emerald-700/50 " +
-  "hover:scale-[1.01] hover:-translate-y-1";
+  "rounded-md border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:p-5";
 
 export const itemCard =
-  "relative p-6 rounded-2xl border border-gray-200/50 dark:border-gray-800/50 " +
-  "bg-gradient-to-r from-white/90 via-gray-50/80 to-gray-100/70 " +
-  "dark:from-gray-900/90 dark:via-gray-900/80 dark:to-gray-950/70 " +
-  "transition-all duration-300 backdrop-blur-sm " +
-  "hover:scale-[1.02] hover:shadow-xl hover:shadow-emerald-800/25 " +
-  "hover:ring-2 hover:ring-emerald-700/50 hover:border-emerald-700/70 " +
-  "hover:-translate-y-0.5 group";
+  "rounded-md border border-gray-200 bg-white p-3 transition-colors hover:border-emerald-500 dark:border-gray-800 dark:bg-gray-950";
+
+export const iconButton =
+  "inline-flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 text-gray-700 transition-colors hover:border-emerald-600 hover:bg-emerald-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-emerald-950";
+
+export function paginate<T>(items: T[], page: number, pageSize: number) {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(page, 1), pageCount);
+  const start = (safePage - 1) * pageSize;
+  return {
+    items: items.slice(start, start + pageSize),
+    page: safePage,
+    pageCount,
+  };
+}

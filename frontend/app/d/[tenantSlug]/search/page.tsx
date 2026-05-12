@@ -1,0 +1,101 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { apiGet, siteUrl, tenantSettings } from "../../../lib/api";
+import { publicCopy, resolvePublicLang } from "../../../lib/server-i18n";
+import AdminFloatingButton from "../AdminFloatingButton";
+import PublicHeader from "../PublicHeader";
+import SearchPageClient from "./SearchPageClient";
+
+type SearchHit = {
+  source_id: string;
+  matched_text: string;
+  context?: string;
+  url?: string;
+  category?: string;
+  h1?: string;
+  h2?: string;
+};
+
+type RouteParams = { tenantSlug: string };
+
+export async function generateMetadata({
+  params,
+  searchParams,
+}: {
+  params: Promise<RouteParams>;
+  searchParams: Promise<{ q?: string }>;
+}): Promise<Metadata> {
+  const { tenantSlug } = await params;
+  const { q = "" } = await searchParams;
+  const [settings, lang] = await Promise.all([tenantSettings(tenantSlug), resolvePublicLang()]);
+  const labels = publicCopy[lang];
+  const title = q ? `${labels.searchMetaTitle}: ${q}` : labels.searchMetaTitle;
+  const url = siteUrl(`/d/${tenantSlug}/search${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  return {
+    title,
+    description: `${labels.searchTitle}: ${settings.site_title || tenantSlug}`,
+    alternates: { canonical: url },
+    robots: { index: false, follow: true },
+  };
+}
+
+export default async function SearchPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<RouteParams>;
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const { tenantSlug } = await params;
+  const { q = "" } = await searchParams;
+  const [settings, lang] = await Promise.all([tenantSettings(tenantSlug), resolvePublicLang()]);
+  const labels = publicCopy[lang];
+  const dir = lang === "ar" ? "rtl" : "ltr";
+  const query = q.trim();
+
+  const initialHits =
+    query.length >= 2
+      ? (await apiGet<SearchHit[]>(
+          `/t/${tenantSlug}/search?q=${encodeURIComponent(query)}&limit=30`,
+          15
+        )) || []
+      : [];
+
+  return (
+    <main dir={dir} className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-50">
+      <PublicHeader tenantSlug={tenantSlug} settings={settings} lang={lang} />
+
+      <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+        <Link
+          href={`/d/${tenantSlug}`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 hover:underline dark:text-emerald-400"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          {labels.backToDocs}
+        </Link>
+
+        <h1 className="mt-4 text-2xl font-bold text-gray-900 dark:text-white sm:text-3xl">
+          {labels.searchTitle}
+        </h1>
+
+        <SearchPageClient
+          tenantSlug={tenantSlug}
+          initialQuery={query}
+          initialHits={initialHits}
+          labels={{
+            searchPlaceholder: labels.searchPlaceholder,
+            search: labels.search,
+            typeTwoChars: labels.typeTwoChars,
+            noResult: labels.noResult,
+            backToDocs: labels.backToDocs,
+            searchTitle: labels.searchTitle,
+          }}
+        />
+      </div>
+
+      <AdminFloatingButton tenantSlug={tenantSlug} />
+    </main>
+  );
+}

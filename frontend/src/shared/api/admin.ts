@@ -18,6 +18,7 @@ export const AdminAuth = {
     return http.post<TokenOut>("/admin/login", body, { auth: false });
   },
   me: () => http.get<AdminUser>("/admin/me"),
+  logout: () => http.post<void>("/admin/logout", undefined),
 };
 
 // --- Admin Users ---
@@ -97,8 +98,17 @@ export const HeadingsApi = {
 };
 
 // --- Contents ---
-type ContentCreate = { heading_id: string; body: string; description?: string | null };
-type ContentUpdate = Partial<{ body: string; description?: string | null }>;
+type ContentCreate = {
+  heading_id: string;
+  body: string;
+  description?: string | null;
+  status?: "draft" | "published";
+};
+type ContentUpdate = Partial<{
+  body: string;
+  description?: string | null;
+  status: "draft" | "published";
+}>;
 
 export const ContentsApi = {
   list(heading_id?: string) {
@@ -183,4 +193,33 @@ export const AI = { formatMarkdown: (text: string) => http.post<{markdown: strin
 export const AdminSettingsApi = {
   updateSettings: (data: { site_title?: string; site_logo?: string }) => http.put("/admin/settings", data),
   uploadSiteLogo: (formData: FormData) => http.post("/admin/settings/logo", formData),
+};
+
+export const AdminUsageApi = {
+  get: () => http.get<any>("/admin/usage"),
+};
+
+export type SearchAnalyticsRow = {
+  query: string;
+  source: "public" | "suggest" | "admin";
+  search_count: number;
+  avg_results: number;
+  last_seen_at: string;
+};
+
+export const AdminSearchApi = {
+  analytics: () => http.get<SearchAnalyticsRow[]>("/admin/search/analytics"),
+  reindex: () => http.post<{ queued: boolean; task_id: string; tenant_slug: string }>("/admin/search/reindex"),
+};
+
+export const AdminBillingApi = {
+  checkout: () => http.post<{ url: string }>("/admin/billing/checkout"),
+  portal: () => http.post<{ url: string }>("/admin/billing/portal"),
+};
+
+export const AdminHealthApi = {
+  brokenLinks: () =>
+    http.get<{ count: number; broken_links: Array<{ content_id: string; url: string }> }>(
+      "/admin/content-health/broken-links"
+    ),
 };

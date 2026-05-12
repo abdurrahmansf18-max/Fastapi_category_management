@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 .env
+.env.production
+.env.local
+docker-compose.local.yml
 .venv
 venv/
 ENV/
@@ -13,6 +16,8 @@ node_modules/
 dist/
 dist-ssr/
 build/
+.next/
+.next-dev*.log
 .npm
 npm-debug.log*
 yarn-debug.log*
@@ -37,3 +42,5 @@ Thumbs.db
 # Project specific
 backend/uploads/
 screenshots/
+frontend/test-results/
+frontend/playwright-report/

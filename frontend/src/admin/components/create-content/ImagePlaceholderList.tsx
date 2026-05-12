@@ -1,5 +1,6 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
+import { AlertTriangle, Camera, CheckCircle2, FolderOpen, ImageIcon, Trash2 } from "lucide-react";
 import type { ImagePlaceholder } from "./types";
 import ResizableImagePreview from "./ResizableImagePreview";
 
@@ -31,7 +32,7 @@ export default function ImagePlaceholderList({
           <div className="space-y-4 mt-6 p-4 rounded-xl bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-900/10 dark:to-indigo-900/10 border border-blue-200/30 dark:border-blue-800/30">
             <div className="flex items-center justify-between">
               <div className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                <span className="text-blue-600 dark:text-blue-400">🖼️</span>
+                <ImageIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                 {t("image_info")}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 bg-blue-100/50 dark:bg-blue-900/20 px-2 py-1 rounded-full">
@@ -59,7 +60,8 @@ export default function ImagePlaceholderList({
                       </span>
                       {img.isValid && (
                         <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
-                          ✓ {t("valid")}
+                          <CheckCircle2 className="mr-1 inline h-3 w-3" />
+                          {t("valid")}
                         </span>
                       )}
                     </div>
@@ -68,7 +70,8 @@ export default function ImagePlaceholderList({
                       onClick={() => removeImagePlaceholder(idx)}
                       className="text-red-500 hover:text-red-700 text-sm px-3 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors font-medium"
                     >
-                      🗑️ {t("delete")}
+                      <Trash2 className="mr-1 inline h-3.5 w-3.5" />
+                      {t("delete")}
                     </button>
                   </div>
 
@@ -95,7 +98,8 @@ export default function ImagePlaceholderList({
                         />
                         <div className="mt-2 flex items-center gap-2">
                           <span className="text-xs text-gray-500 dark:text-gray-400">
-                            {t("or")}\n                          </span>
+                            {t("or")}
+                          </span>
                           <input
                             type="file"
                             accept="image/*"
@@ -107,19 +111,20 @@ export default function ImagePlaceholderList({
                             htmlFor={`file-${idx}`}
                             className="px-3 py-1.5 text-xs rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors cursor-pointer font-medium"
                           >
-                            📁 {t("select_from_computer")}
+                            <FolderOpen className="mr-1 inline h-3.5 w-3.5" />
+                            {t("select_from_computer")}
                           </label>
                           {img.file && (
                             <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
-                              ✓ {img.file.name}
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              {img.file.name}
                             </span>
                           )}
                         </div>
                         {img.url && !img.isValid && !img.file && (
                           <div className="text-xs text-red-600 dark:text-red-400 mt-1 flex items-center gap-1">
-                            <span>⚠️</span>
-                            Geçerli bir resim URL'si girin (.jpg, .png, .gif,
-                            .webp, .svg)
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            {t("valid_image_url_required")}
                           </div>
                         )}
                       </div>
@@ -154,7 +159,7 @@ export default function ImagePlaceholderList({
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-400 dark:text-gray-600 text-xs aspect-video">
                               <div className="text-center">
-                                <div className="text-2xl mb-1">⚠️</div>
+                                <AlertTriangle className="mx-auto mb-1 h-6 w-6" />
                                 <div>{t('image_could_not_be_loaded')}</div>
                               </div>
                             </div>
@@ -164,7 +169,7 @@ export default function ImagePlaceholderList({
                       {(!img.url || !img.isValid) && !img.file && (
                         <div className="aspect-video rounded-lg bg-gray-100 dark:bg-gray-800 border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center">
                           <div className="text-center text-gray-400 dark:text-gray-600 text-xs">
-                            <div className="text-2xl mb-1">📷</div>
+                            <Camera className="mx-auto mb-1 h-6 w-6" />
                             <div>{t("preview")}</div>
                           </div>
                         </div>

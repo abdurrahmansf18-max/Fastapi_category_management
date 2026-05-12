@@ -1,6 +1,12 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./tsconfig.app.json" }
-  ]
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "plugins": [{ "name": "next" }],
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "allowJs": true,
+    "incremental": true
+  },
+  "include": ["next-env.d.ts", "app", "src", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
 }

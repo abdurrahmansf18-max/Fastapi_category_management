@@ -1,0 +1,261 @@
+services:
+  caddy:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - APP_DOMAIN=${APP_DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_BACKEND_ORIGIN: http://backend:8000
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_BACKEND_ORIGIN=http://backend:8000
+      - NEXT_INTERNAL_API_BASE=http://backend:8000
+      - NEXT_PUBLIC_API_BASE=/api
+      - NEXT_PUBLIC_SITE_URL=https://${APP_DOMAIN}
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
+      - APP_PUBLIC_BASE_URL=https://${APP_DOMAIN}
+      - API_PUBLIC_PREFIX=/api
+      - CORS_ORIGINS=https://${APP_DOMAIN}
+      - TRUSTED_HOSTS=${APP_DOMAIN},backend,localhost,127.0.0.1
+      - SECRET_KEY=${SECRET_KEY}
+      - COOKIE_SECURE=true
+      - PUBLIC_CACHE_ETAG_MAX_BYTES=${PUBLIC_CACHE_ETAG_MAX_BYTES:-262144}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_FROM}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_PRICE_PRO=${STRIPE_PRICE_PRO}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - OPS_STATUS_DIR=/ops-status
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - PLATFORM_OWNER_EMAIL=${PLATFORM_OWNER_EMAIL}
+      - PLATFORM_OWNER_PASSWORD_HASH=${PLATFORM_OWNER_PASSWORD_HASH}
+      - PLATFORM_OWNER_TOTP_SECRET=${PLATFORM_OWNER_TOTP_SECRET}
+    volumes:
+      - uploads:/app/uploads
+      - ops_status:/ops-status:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+      meilisearch:
+        condition: service_started
+
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: "no"
+    command: ["python", "run_migration.py"]
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}
+      - SECRET_KEY=${SECRET_KEY}
+      - APP_PUBLIC_BASE_URL=https://${APP_DOMAIN}
+      - API_PUBLIC_PREFIX=/api
+      - CORS_ORIGINS=https://${APP_DOMAIN}
+      - TRUSTED_HOSTS=${APP_DOMAIN},backend,localhost,127.0.0.1
+      - COOKIE_SECURE=true
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_FROM}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_PRICE_PRO=${STRIPE_PRICE_PRO}
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - PLATFORM_OWNER_EMAIL=${PLATFORM_OWNER_EMAIL}
+      - PLATFORM_OWNER_PASSWORD_HASH=${PLATFORM_OWNER_PASSWORD_HASH}
+      - PLATFORM_OWNER_TOTP_SECRET=${PLATFORM_OWNER_TOTP_SECRET}
+    depends_on:
+      - pgbouncer
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - SENTRY_DSN=${SENTRY_DSN}
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      - backend
+      - redis
+      - meilisearch
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=200", "-c", "log_min_duration_statement=500"]
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.23.1-p1
+    restart: unless-stopped
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${POSTGRES_DB}
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=1000
+      - DEFAULT_POOL_SIZE=50
+    depends_on:
+      - postgres
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    restart: unless-stopped
+    environment:
+      - MEILI_MASTER_KEY=${MEILISEARCH_API_KEY}
+      - MEILI_ENV=production
+    volumes:
+      - meili_data:/meili_data
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  loki:
+    image: grafana/loki:3.3.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./infra/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:3.3.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail.yml"]
+    volumes:
+      - /var/log:/var/log:ro
+      - ./infra/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+    depends_on:
+      - loki
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache restic && /backup/backup.sh"]
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - OPS_STATUS_DIR=/ops-status
+    volumes:
+      - uploads:/data/uploads:ro
+      - meili_data:/data/meili:ro
+      - ./infra/backup:/backup:ro
+      - ops_status:/ops-status
+    depends_on:
+      - postgres
+
+  restore-check:
+    image: alpine:3.21
+    profiles: ["ops"]
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache restic && /backup/restore_check.sh"]
+    environment:
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - OPS_STATUS_DIR=/ops-status
+    volumes:
+      - ./infra/backup:/backup:ro
+      - ops_status:/ops-status
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:
+  meili_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  uploads:
+  ops_status:

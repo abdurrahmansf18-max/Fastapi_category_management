@@ -1,7 +1,10 @@
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cx, toUndef, sectionCard, itemCard } from "../utils/uiHelpers";
+import { Edit3, Heading2, Trash2 } from "lucide-react";
+import { cx, toUndef, sectionCard, itemCard, iconButton, paginate } from "../utils/uiHelpers";
 import CreateH1Form from "../components/CreateH1Form";
 import CreateH2Form from "../components/CreateH2Form";
+import { ListControls, PaginationControls } from "../components/ListControls";
 import type { Category, Heading, Content, UUID } from "../../shared/types/models";
 
 interface HeadingsViewProps {
@@ -42,18 +45,36 @@ export default function HeadingsView({
   createH2,
 }: HeadingsViewProps) {
   const { t } = useTranslation();
+  const [h1Query, setH1Query] = useState("");
+  const [h2Query, setH2Query] = useState("");
+  const [h1Page, setH1Page] = useState(1);
+  const [h2Page, setH2Page] = useState(1);
+  const filteredH1 = useMemo(() => {
+    const needle = h1Query.trim().toLowerCase();
+    if (!needle) return h1s;
+    return h1s.filter((heading) =>
+      `${heading.title} ${heading.description || ""} ${heading.slug}`.toLowerCase().includes(needle)
+    );
+  }, [h1Query, h1s]);
+  const filteredH2 = useMemo(() => {
+    const needle = h2Query.trim().toLowerCase();
+    if (!needle) return h2s;
+    return h2s.filter((heading) =>
+      `${heading.title} ${heading.description || ""} ${heading.slug}`.toLowerCase().includes(needle)
+    );
+  }, [h2Query, h2s]);
+  const pagedH1 = paginate(filteredH1, h1Page, 12);
+  const pagedH2 = paginate(filteredH2, h2Page, 12);
 
   return (
     <section className={sectionCard}>
-      <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
-
-      <div className="relative z-10">
-        <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-            📑
+      <div>
+        <div className="mb-5 flex items-center gap-3 text-gray-900 dark:text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-700 text-white">
+            <Heading2 className="h-5 w-5" />
           </div>
           <div>
-            <h2>{t('headings')}</h2>
+            <h2 className="text-xl font-bold">{t('headings')}</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
               {t("headings_desc")}
             </p>
@@ -62,7 +83,6 @@ export default function HeadingsView({
 
         {!activeCat && (
           <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-            <div className="text-6xl mb-4">📁</div>
             <p className="text-lg font-medium">{t("select_category_first")}</p>
             <p className="text-sm">{t("select_category_to_view_headings")}</p>
           </div>
@@ -76,18 +96,26 @@ export default function HeadingsView({
                 <div className="w-3 h-3 rounded-full bg-emerald-600" />
                 <span>{t("main_headings")}</span>
               </div>
+              <ListControls
+                query={h1Query}
+                onQueryChange={(value) => {
+                  setH1Query(value);
+                  setH1Page(1);
+                }}
+                placeholder={t("search_placeholder")}
+                countLabel={`${filteredH1.length} ${t("items")}`}
+              />
 
               {h1s.length === 0 ? (
                 <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                  <div className="text-4xl mb-3">📄</div>
                   <p className="text-lg font-medium">
                     {t("no_heading_yet")}
                   </p>
                   <p className="text-sm">{t("create_first_heading")}</p>
                 </div>
               ) : (
-                <div className="grid gap-4">
-                  {h1s.map((h) => (
+                <div className="grid gap-2">
+                  {pagedH1.items.map((h) => (
                     <div key={h.id} className={itemCard}>
                       <div className="flex items-center justify-between gap-4">
                         <button
@@ -115,7 +143,7 @@ export default function HeadingsView({
 
                         <div className="flex items-center gap-3">
                           <button
-                            className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-500/70 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 hover:scale-105 transition-all duration-200"
+                            className={iconButton}
                             onClick={async () => {
                               const title = await showPrompt(t("edit_title_modal"), h.title || "", t("new_title"));
                               if (title === null) return;
@@ -129,15 +157,15 @@ export default function HeadingsView({
                             }}
                             title={t('edit')}
                           >
-                            ✏️
+                            <Edit3 className="h-4 w-4" />
                           </button>
 
                           <button
-                            className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
+                            className={iconButton}
                             onClick={() => deleteHeading(h.id)}
                             title={t('delete')}
                           >
-                            🗑️
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
@@ -148,6 +176,13 @@ export default function HeadingsView({
                       )}
                     </div>
                   ))}
+                  <PaginationControls
+                    page={pagedH1.page}
+                    pageCount={pagedH1.pageCount}
+                    onPageChange={setH1Page}
+                    previousLabel={t("previous_page")}
+                    nextLabel={t("next_page")}
+                  />
                 </div>
               )}
 
@@ -167,16 +202,24 @@ export default function HeadingsView({
                   <div className="w-3 h-3 rounded-full bg-emerald-700" />
                   <span>{t("sub_headings")}</span>
                 </div>
+                <ListControls
+                  query={h2Query}
+                  onQueryChange={(value) => {
+                    setH2Query(value);
+                    setH2Page(1);
+                  }}
+                  placeholder={t("search_placeholder")}
+                  countLabel={`${filteredH2.length} ${t("items")}`}
+                />
 
                 {h2s.length === 0 ? (
                   <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                    <div className="text-4xl mb-3">📑</div>
                     <p className="text-lg font-medium">{t("no_subheading_yet")}</p>
                     <p className="text-sm">{t("create_first_subheading")}</p>
                   </div>
                 ) : (
-                  <div className="grid gap-4">
-                    {h2s.map((h) => (
+                  <div className="grid gap-2">
+                    {pagedH2.items.map((h) => (
                       <div key={h.id} className={itemCard}>
                         <div className="flex items-center justify-between gap-4">
                           <button
@@ -191,7 +234,7 @@ export default function HeadingsView({
 
                           <div className="flex items-center gap-3">
                             <button
-                              className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
+                              className={iconButton}
                               onClick={async () => {
                                 const title = await showPrompt(t("edit_subtitle"), h.title || "", t("new_subtitle"));
                                 if (title === null) return;
@@ -205,15 +248,15 @@ export default function HeadingsView({
                               }}
                               title={t('edit')}
                             >
-                              ✏️
+                              <Edit3 className="h-4 w-4" />
                             </button>
 
                             <button
-                              className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
+                              className={iconButton}
                               onClick={() => deleteHeading(h.id)}
                               title={t('delete')}
                             >
-                              🗑️
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
                         </div>
@@ -224,6 +267,13 @@ export default function HeadingsView({
                         )}
                       </div>
                     ))}
+                    <PaginationControls
+                      page={pagedH2.page}
+                      pageCount={pagedH2.pageCount}
+                      onPageChange={setH2Page}
+                      previousLabel={t("previous_page")}
+                      nextLabel={t("next_page")}
+                    />
                   </div>
                 )}
 
@@ -231,9 +281,6 @@ export default function HeadingsView({
                   {contents.some((c) => c.heading_id === activeH1?.id) ? (
                     <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-800/60">
                       <div className="flex items-center gap-3">
-                        <span className="text-amber-600 dark:text-amber-400 text-lg">
-                          ⚠️
-                        </span>
                         <div>
                           <p className="font-medium text-amber-800 dark:text-amber-200">
                             {t('h1_has_content')}

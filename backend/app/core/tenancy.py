@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -11,6 +12,7 @@ from app.core.config import ABS_UPLOADS_DIR
 from app.db.session import (
     fetch_one,
     platform_fetch_one,
+    platform_execute,
     reset_tenant_schema,
     set_tenant_schema,
 )
@@ -28,6 +30,11 @@ class TenantContext:
     max_headings: int
     max_contents: int
     max_upload_bytes: int
+    max_seo_pages: int
+    public_rate_limit: int
+    search_rate_limit: int
+    admin_rate_limit: int
+    ai_monthly_limit: int
 
 
 _current_tenant: ContextVar[TenantContext | None] = ContextVar(
@@ -41,7 +48,9 @@ async def load_tenant_context(tenant_slug: str) -> TenantContext:
         SELECT
           t.id, t.slug, t.name, t.schema_name, t.plan_code,
           p.max_admins, p.max_categories, p.max_headings,
-          p.max_contents, p.max_upload_bytes
+          p.max_contents, p.max_upload_bytes, p.max_seo_pages,
+          p.public_rate_limit, p.search_rate_limit, p.admin_rate_limit,
+          p.ai_monthly_limit
         FROM public.tenant t
         JOIN public.plan p ON p.code = t.plan_code
         WHERE t.slug = :slug AND t.status = 'active'
@@ -61,6 +70,11 @@ async def load_tenant_context(tenant_slug: str) -> TenantContext:
         max_headings=row["max_headings"],
         max_contents=row["max_contents"],
         max_upload_bytes=row["max_upload_bytes"],
+        max_seo_pages=row["max_seo_pages"],
+        public_rate_limit=row["public_rate_limit"],
+        search_rate_limit=row["search_rate_limit"],
+        admin_rate_limit=row["admin_rate_limit"],
+        ai_monthly_limit=row["ai_monthly_limit"],
     )
 
 
@@ -105,11 +119,73 @@ async def enforce_tenant_limit(resource: str) -> None:
         row = await fetch_one("SELECT count(*) AS c FROM content")
         current = row["c"] if row else 0
         limit = tenant.max_contents
+    elif resource == "seo_pages":
+        row = await fetch_one(
+            """
+            SELECT
+              (SELECT count(*) FROM category) +
+              (SELECT count(*) FROM heading WHERE level = 1) +
+              (SELECT count(*) FROM heading WHERE level = 2) AS c
+            """
+        )
+        current = row["c"] if row else 0
+        limit = tenant.max_seo_pages
     else:
         raise HTTPException(status_code=500, detail=f"Unknown limit resource: {resource}")
 
     if current >= limit:
         raise HTTPException(status_code=403, detail=f"{resource} limit reached for this plan")
+
+
+def current_month_period_start() -> date:
+    today = date.today()
+    return today.replace(day=1)
+
+
+async def increment_tenant_usage_or_403(key: str, limit: int, amount: int = 1) -> int:
+    if limit < 1:
+        raise HTTPException(status_code=403, detail=f"{key} limit reached for this plan")
+    tenant = get_tenant_context()
+    rows = await platform_execute(
+        """
+        INSERT INTO public.usage_counter (tenant_id, key, period_start, value)
+        VALUES (:tenant_id, :key, :period_start, :amount)
+        ON CONFLICT (tenant_id, key, period_start) DO UPDATE SET
+          value = public.usage_counter.value + EXCLUDED.value,
+          updated_at = now()
+        WHERE public.usage_counter.value + EXCLUDED.value <= :limit
+        RETURNING value
+        """,
+        {
+            "tenant_id": tenant.id,
+            "key": key,
+            "period_start": current_month_period_start(),
+            "amount": amount,
+            "limit": limit,
+        },
+    )
+    if not rows:
+        raise HTTPException(status_code=403, detail=f"{key} limit reached for this plan")
+    return int(rows[0]["value"])
+
+
+async def tenant_usage_value(key: str) -> int:
+    tenant = get_tenant_context()
+    row = await platform_fetch_one(
+        """
+        SELECT value
+        FROM public.usage_counter
+        WHERE tenant_id = :tenant_id
+          AND key = :key
+          AND period_start = :period_start
+        """,
+        {
+            "tenant_id": tenant.id,
+            "key": key,
+            "period_start": current_month_period_start(),
+        },
+    )
+    return int(row["value"]) if row else 0
 
 
 def tenant_upload_dir(tenant_slug: str | None = None) -> Path:

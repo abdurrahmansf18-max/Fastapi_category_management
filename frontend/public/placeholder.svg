@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="Image placeholder">
+  <rect width="640" height="360" fill="#f3f4f6"/>
+  <rect x="1" y="1" width="638" height="358" fill="none" stroke="#d1d5db" stroke-width="2"/>
+  <path d="M210 230l66-72 50 53 35-38 69 57H210z" fill="#9ca3af"/>
+  <circle cx="420" cy="118" r="28" fill="#9ca3af"/>
+  <text x="320" y="290" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#6b7280">Image unavailable</text>
+</svg>

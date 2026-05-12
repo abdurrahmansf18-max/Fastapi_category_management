@@ -1,6 +1,9 @@
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cx, toUndef, sectionCard, itemCard } from "../utils/uiHelpers";
+import { Edit3, FolderTree, Trash2 } from "lucide-react";
+import { cx, toUndef, sectionCard, itemCard, iconButton, paginate } from "../utils/uiHelpers";
 import CreateCategoryForm from "../components/CreateCategoryForm";
+import { ListControls, PaginationControls } from "../components/ListControls";
 import type { Category, UUID } from "../../shared/types/models";
 
 interface CategoriesViewProps {
@@ -33,33 +36,50 @@ export default function CategoriesView({
   createCategory,
 }: CategoriesViewProps) {
   const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return cats;
+    return cats.filter((category) =>
+      `${category.name} ${category.description || ""} ${category.slug}`.toLowerCase().includes(needle)
+    );
+  }, [cats, query]);
+  const paged = paginate(filtered, page, 12);
 
   return (
     <section className={sectionCard}>
-      <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
-
-      <div className="relative z-10">
-        <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-            📁
+      <div>
+        <div className="mb-5 flex items-center gap-3 text-gray-900 dark:text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-700 text-white">
+            <FolderTree className="h-5 w-5" />
           </div>
           <div>
-            <h2>{t("categories")}</h2>
+            <h2 className="text-xl font-bold">{t("categories")}</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
               {t("categories_desc")}
             </p>
           </div>
         </div>
 
+        <ListControls
+          query={query}
+          onQueryChange={(value) => {
+            setQuery(value);
+            setPage(1);
+          }}
+          placeholder={t("search_placeholder")}
+          countLabel={`${filtered.length} ${t("items")}`}
+        />
+
         {cats.length === 0 ? (
           <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-            <div className="text-6xl mb-4">📂</div>
             <p className="text-lg font-medium">{t("no_category_yet")}</p>
             <p className="text-sm">{t("create_first_category")}</p>
           </div>
         ) : (
-          <div className="grid gap-4">
-            {cats.map((c) => (
+          <div className="grid gap-2">
+            {paged.items.map((c) => (
               <div key={c.id} className={itemCard}>
                 <div className="flex items-center gap-4 justify-between">
                   <button
@@ -84,7 +104,7 @@ export default function CategoriesView({
 
                   <div className="flex items-center gap-3">
                     <button
-                      className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
+                      className={iconButton}
                       onClick={async () => {
                         const name = await showPrompt(
                           t("edit_category"),
@@ -110,15 +130,15 @@ export default function CategoriesView({
                       }}
                       title={t("edit")}
                     >
-                      ✏️
+                      <Edit3 className="h-4 w-4" />
                     </button>
 
                     <button
-                      className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
+                      className={iconButton}
                       onClick={() => deleteCategory(c.id)}
                       title={t("delete")}
                     >
-                      🗑️
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -129,6 +149,13 @@ export default function CategoriesView({
                 )}
               </div>
             ))}
+            <PaginationControls
+              page={paged.page}
+              pageCount={paged.pageCount}
+              onPageChange={setPage}
+              previousLabel={t("previous_page")}
+              nextLabel={t("next_page")}
+            />
           </div>
         )}
 

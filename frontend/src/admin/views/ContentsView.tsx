@@ -1,7 +1,10 @@
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cx, sectionCard, itemCard } from "../utils/uiHelpers";
+import { Edit3, FileText, ImageIcon, Trash2 } from "lucide-react";
+import { cx, sectionCard, itemCard, iconButton, paginate } from "../utils/uiHelpers";
 import ContentImageManager from "../components/ContentImageManager";
 import CreateContentForm from "../components/CreateContentForm";
+import { ListControls, PaginationControls } from "../components/ListControls";
 import { ContentsApi } from "../../shared/api/admin";
 import type { Heading, Content, UUID, Category } from "../../shared/types/models";
 
@@ -17,7 +20,13 @@ interface ContentsViewProps {
   fetchContentsByHeading: (headingId: UUID) => Promise<void>;
   showPrompt: (title: string, defaultValue?: string, message?: string) => Promise<string | null>;
   showConfirm: (title: string, message?: string) => Promise<boolean>;
-  createContent: (headingId: UUID, body: string, images: any[], description?: string) => Promise<void>;
+  createContent: (
+    headingId: UUID,
+    body: string,
+    images: any[],
+    description?: string,
+    status?: "draft" | "published"
+  ) => Promise<void>;
 }
 
 export default function ContentsView({
@@ -35,18 +44,26 @@ export default function ContentsView({
   createContent,
 }: ContentsViewProps) {
   const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return contents;
+    return contents.filter((content) =>
+      `${content.body} ${content.description || ""}`.toLowerCase().includes(needle)
+    );
+  }, [contents, query]);
+  const paged = paginate(filtered, page, 10);
 
   return (
     <section className={sectionCard}>
-      <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
-
-      <div className="relative z-10">
-        <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-            📝
+      <div>
+        <div className="mb-5 flex items-center gap-3 text-gray-900 dark:text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-700 text-white">
+            <FileText className="h-5 w-5" />
           </div>
           <div>
-            <h2>{t('contents')}</h2>
+            <h2 className="text-xl font-bold">{t('contents')}</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 font-normal">
               {t("contents_desc")}
             </p>
@@ -55,7 +72,6 @@ export default function ContentsView({
 
         {!currentHeadingId && (
           <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-            <div className="text-6xl mb-4">📑</div>
             <p className="text-lg font-medium">{t("select_heading_first")}</p>
             <p className="text-sm">{t("select_heading_to_view_contents")}</p>
           </div>
@@ -66,9 +82,7 @@ export default function ContentsView({
             {selectedContent && (
               <div className="mb-8 p-6 rounded-2xl bg-gradient-to-br from-blue-50/80 to-indigo-100/80 dark:from-blue-900/20 dark:to-indigo-900/20 border border-dashed border-blue-300/60 dark:border-blue-700/60 backdrop-blur-sm">
                 <div className="font-semibold mb-4 text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                  <span className="text-blue-600 dark:text-blue-400">
-                    🖼️
-                  </span>{" "}
+                  <ImageIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   {t("image_management")}
                 </div>
                 <div className="p-4 rounded-xl bg-white/50 dark:bg-gray-800/30 border border-blue-200/50 dark:border-blue-800/50">
@@ -84,8 +98,18 @@ export default function ContentsView({
               </div>
             )}
 
-            <div className="grid gap-4">
-              {contents.map((c) => (
+            <ListControls
+              query={query}
+              onQueryChange={(value) => {
+                setQuery(value);
+                setPage(1);
+          }}
+          placeholder={t("search_placeholder")}
+          countLabel={`${filtered.length} ${t("items")}`}
+        />
+
+            <div className="grid gap-2">
+              {paged.items.map((c) => (
                 <div key={c.id} className={itemCard}>
                   <div className="flex items-center justify-between gap-4">
                     <button
@@ -105,13 +129,30 @@ export default function ContentsView({
                       {c.body.substring(0, 50)}...
                     </button>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        onClick={() => {
+                          const nextStatus = c.status === "draft" ? "published" : "draft";
+                          ContentsApi.update(c.id, { status: nextStatus })
+                            .then(() => {
+                              if (currentHeadingId) fetchContentsByHeading(currentHeadingId);
+                              showNotification(
+                                nextStatus === "published" ? t("status_published") : t("status_draft"),
+                                "success"
+                              );
+                            })
+                            .catch(() => showNotification(t("content_update_error")));
+                        }}
+                        className="min-h-10 rounded-md border border-gray-300 px-3 text-xs font-semibold text-gray-700 hover:border-emerald-600 dark:border-gray-700 dark:text-gray-300"
+                      >
+                        {c.status === "draft" ? t("publish_now") : t("save_as_draft")}
+                      </button>
                       <button
                         className={cx(
-                          "px-3 py-1.5 text-xs rounded-lg font-medium transition-all duration-200",
+                          "inline-flex h-10 w-10 items-center justify-center rounded-md border text-xs font-medium transition-colors",
                           selectedContent?.id === c.id
-                            ? "bg-blue-500 text-white"
-                            : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                            ? "border-blue-500 bg-blue-500 text-white"
+                            : "border-gray-300 text-blue-700 hover:border-blue-500 hover:bg-blue-50 dark:border-gray-700 dark:text-blue-300 dark:hover:bg-blue-950"
                         )}
                         onClick={() =>
                           setSelectedContent(
@@ -119,7 +160,7 @@ export default function ContentsView({
                           )
                         }
                       >
-                        🖼️ {t("manage_images")}
+                        <ImageIcon className="h-4 w-4" />
                       </button>
                       <button
                         onClick={async () => {
@@ -139,9 +180,10 @@ export default function ContentsView({
                               );
                           }
                         }}
-                        className="px-3 py-1.5 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/50 font-medium transition-all duration-200"
+                        className={iconButton}
+                        title={t("edit")}
                       >
-                        ✏️ {t("edit")}
+                        <Edit3 className="h-4 w-4" />
                       </button>
                       <button
                         onClick={async () => {
@@ -165,9 +207,10 @@ export default function ContentsView({
                               );
                           }
                         }}
-                        className="px-3 py-1.5 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 font-medium transition-all duration-200"
+                        className={iconButton}
+                        title={t("delete")}
                       >
-                        🗑️ {t("delete")}
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
@@ -176,8 +219,18 @@ export default function ContentsView({
                       {c.description}
                     </p>
                   )}
+                  <span className="mt-3 inline-flex rounded-md bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                    {c.status === "draft" ? t("status_draft") : t("status_published")}
+                  </span>
                 </div>
               ))}
+              <PaginationControls
+                page={paged.page}
+                pageCount={paged.pageCount}
+                onPageChange={setPage}
+                previousLabel={t("previous_page")}
+                nextLabel={t("next_page")}
+              />
             </div>
           </>
         )}
@@ -187,30 +240,29 @@ export default function ContentsView({
             <CreateContentForm
               targetOptions={
                 currentHeadingId
-                  ? // Eğer bir başlık seçildiyse sadece o başlığı göster
+                  ? // When a heading is selected, only show that heading.
                     [
                       ...h1s
                         .filter((h) => h.id === currentHeadingId)
-                        .map((h) => ({ id: h.id, label: `📄 ${h.title}` })),
+                        .map((h) => ({ id: h.id, label: h.title })),
                       ...h2s
                         .filter((h) => h.id === currentHeadingId)
-                        .map((h) => ({ id: h.id, label: `📑 ${h.title}` })),
+                        .map((h) => ({ id: h.id, label: h.title })),
                     ]
-                  : // Değilse tüm başlıkları göster ama mantığa göre filtrele
+                  : // Otherwise show eligible headings for the active context.
                     [
-                      // Ana başlık seçildiyse ve alt başlık yoksa ana başlığı göster
+                      // If the main heading has no subheadings, content can attach to it.
                       ...(activeH1 && h2s.length === 0
                         ? [
                             {
                               id: activeH1.id,
-                              label: `📄 ${activeH1.title}`,
+                              label: activeH1.title,
                             },
                           ]
                         : []),
-                      // Alt başlıklar varsa onları göster
                       ...h2s.map((h) => ({
                         id: h.id,
-                        label: `📑 ${h.title}`,
+                        label: h.title,
                       })),
                     ]
               }

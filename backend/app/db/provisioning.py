@@ -9,11 +9,29 @@ from app.db.session import engine, quote_ident
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 FREE_PLAN_LIMITS = {
-    "max_admins": 3,
-    "max_categories": 20,
-    "max_headings": 200,
-    "max_contents": 200,
-    "max_upload_bytes": 100 * 1024 * 1024,
+    "max_admins": 1,
+    "max_categories": 3,
+    "max_headings": 20,
+    "max_contents": 20,
+    "max_upload_bytes": 20 * 1024 * 1024,
+    "max_seo_pages": 25,
+    "public_rate_limit": 60,
+    "search_rate_limit": 20,
+    "admin_rate_limit": 40,
+    "ai_monthly_limit": 5,
+}
+
+PRO_PLAN_LIMITS = {
+    "max_admins": 10,
+    "max_categories": 200,
+    "max_headings": 2000,
+    "max_contents": 2000,
+    "max_upload_bytes": 5 * 1024 * 1024 * 1024,
+    "max_seo_pages": 2000,
+    "public_rate_limit": 600,
+    "search_rate_limit": 300,
+    "admin_rate_limit": 600,
+    "ai_monthly_limit": 500,
 }
 
 
@@ -37,16 +55,43 @@ PLATFORM_DDL = [
       max_headings int NOT NULL,
       max_contents int NOT NULL,
       max_upload_bytes bigint NOT NULL,
+      max_seo_pages int NOT NULL DEFAULT 200,
+      public_rate_limit int NOT NULL DEFAULT 120,
+      search_rate_limit int NOT NULL DEFAULT 60,
+      admin_rate_limit int NOT NULL DEFAULT 120,
+      ai_monthly_limit int NOT NULL DEFAULT 25,
       created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "ALTER TABLE public.plan ADD COLUMN IF NOT EXISTS max_seo_pages int NOT NULL DEFAULT 200",
+    "ALTER TABLE public.plan ADD COLUMN IF NOT EXISTS public_rate_limit int NOT NULL DEFAULT 120",
+    "ALTER TABLE public.plan ADD COLUMN IF NOT EXISTS search_rate_limit int NOT NULL DEFAULT 60",
+    "ALTER TABLE public.plan ADD COLUMN IF NOT EXISTS admin_rate_limit int NOT NULL DEFAULT 120",
+    "ALTER TABLE public.plan ADD COLUMN IF NOT EXISTS ai_monthly_limit int NOT NULL DEFAULT 25",
+    """
+    CREATE TABLE IF NOT EXISTS public.plan_entitlement (
+      plan_code text NOT NULL REFERENCES public.plan(code) ON DELETE CASCADE,
+      key text NOT NULL,
+      entitlement_value jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (plan_code, key)
     )
     """,
     """
     INSERT INTO public.plan (
-      code, name, max_admins, max_categories, max_headings, max_contents, max_upload_bytes
+      code, name, max_admins, max_categories, max_headings, max_contents, max_upload_bytes,
+      max_seo_pages, public_rate_limit, search_rate_limit, admin_rate_limit, ai_monthly_limit
     )
     VALUES (
       'free', 'Free',
-      :max_admins, :max_categories, :max_headings, :max_contents, :max_upload_bytes
+      :free_max_admins, :free_max_categories, :free_max_headings, :free_max_contents, :free_max_upload_bytes,
+      :free_max_seo_pages, :free_public_rate_limit, :free_search_rate_limit, :free_admin_rate_limit, :free_ai_monthly_limit
+    ),
+    (
+      'pro', 'Pro',
+      :pro_max_admins, :pro_max_categories, :pro_max_headings, :pro_max_contents, :pro_max_upload_bytes,
+      :pro_max_seo_pages, :pro_public_rate_limit, :pro_search_rate_limit, :pro_admin_rate_limit, :pro_ai_monthly_limit
     )
     ON CONFLICT (code) DO UPDATE SET
       name = EXCLUDED.name,
@@ -54,7 +99,39 @@ PLATFORM_DDL = [
       max_categories = EXCLUDED.max_categories,
       max_headings = EXCLUDED.max_headings,
       max_contents = EXCLUDED.max_contents,
-      max_upload_bytes = EXCLUDED.max_upload_bytes
+      max_upload_bytes = EXCLUDED.max_upload_bytes,
+      max_seo_pages = EXCLUDED.max_seo_pages,
+      public_rate_limit = EXCLUDED.public_rate_limit,
+      search_rate_limit = EXCLUDED.search_rate_limit,
+      admin_rate_limit = EXCLUDED.admin_rate_limit,
+      ai_monthly_limit = EXCLUDED.ai_monthly_limit
+    """,
+    """
+    INSERT INTO public.plan_entitlement (plan_code, key, entitlement_value)
+    VALUES
+      ('free', 'max_admins', to_jsonb(CAST(:free_max_admins AS int))),
+      ('free', 'max_categories', to_jsonb(CAST(:free_max_categories AS int))),
+      ('free', 'max_headings', to_jsonb(CAST(:free_max_headings AS int))),
+      ('free', 'max_contents', to_jsonb(CAST(:free_max_contents AS int))),
+      ('free', 'max_upload_bytes', to_jsonb(CAST(:free_max_upload_bytes AS bigint))),
+      ('free', 'max_seo_pages', to_jsonb(CAST(:free_max_seo_pages AS int))),
+      ('free', 'public_rate_limit', to_jsonb(CAST(:free_public_rate_limit AS int))),
+      ('free', 'search_rate_limit', to_jsonb(CAST(:free_search_rate_limit AS int))),
+      ('free', 'admin_rate_limit', to_jsonb(CAST(:free_admin_rate_limit AS int))),
+      ('free', 'ai_monthly_limit', to_jsonb(CAST(:free_ai_monthly_limit AS int))),
+      ('pro', 'max_admins', to_jsonb(CAST(:pro_max_admins AS int))),
+      ('pro', 'max_categories', to_jsonb(CAST(:pro_max_categories AS int))),
+      ('pro', 'max_headings', to_jsonb(CAST(:pro_max_headings AS int))),
+      ('pro', 'max_contents', to_jsonb(CAST(:pro_max_contents AS int))),
+      ('pro', 'max_upload_bytes', to_jsonb(CAST(:pro_max_upload_bytes AS bigint))),
+      ('pro', 'max_seo_pages', to_jsonb(CAST(:pro_max_seo_pages AS int))),
+      ('pro', 'public_rate_limit', to_jsonb(CAST(:pro_public_rate_limit AS int))),
+      ('pro', 'search_rate_limit', to_jsonb(CAST(:pro_search_rate_limit AS int))),
+      ('pro', 'admin_rate_limit', to_jsonb(CAST(:pro_admin_rate_limit AS int))),
+      ('pro', 'ai_monthly_limit', to_jsonb(CAST(:pro_ai_monthly_limit AS int)))
+    ON CONFLICT (plan_code, key) DO UPDATE SET
+      entitlement_value = EXCLUDED.entitlement_value,
+      updated_at = now()
     """,
     """
     CREATE TABLE IF NOT EXISTS public.user_account (
@@ -107,6 +184,142 @@ PLATFORM_DDL = [
       expires_at timestamptz NOT NULL,
       consumed_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS public.audit_event (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid REFERENCES public.tenant(id) ON DELETE SET NULL,
+      actor_user_id uuid REFERENCES public.user_account(id) ON DELETE SET NULL,
+      action text NOT NULL,
+      target_type text,
+      target_id text,
+      metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_audit_event_tenant_time ON public.audit_event(tenant_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_audit_event_action_time ON public.audit_event(action, created_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS public.admin_session (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES public.user_account(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      refresh_hash text UNIQUE,
+      csrf_hash text NOT NULL,
+      user_agent text,
+      ip inet,
+      revoked_at timestamptz,
+      expires_at timestamptz NOT NULL,
+      refresh_expires_at timestamptz,
+      last_seen_at timestamptz,
+      impersonated_by text,
+      impersonation_reason text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "ALTER TABLE public.admin_session ADD COLUMN IF NOT EXISTS refresh_hash text",
+    "ALTER TABLE public.admin_session ADD COLUMN IF NOT EXISTS refresh_expires_at timestamptz",
+    "ALTER TABLE public.admin_session ADD COLUMN IF NOT EXISTS last_seen_at timestamptz",
+    "ALTER TABLE public.admin_session ADD COLUMN IF NOT EXISTS impersonated_by text",
+    "ALTER TABLE public.admin_session ADD COLUMN IF NOT EXISTS impersonation_reason text",
+    "CREATE INDEX IF NOT EXISTS idx_admin_session_user_active ON public.admin_session(user_id, tenant_id, expires_at) WHERE revoked_at IS NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_admin_session_refresh_hash ON public.admin_session(refresh_hash) WHERE refresh_hash IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_admin_session_refresh_active ON public.admin_session(refresh_hash, refresh_expires_at) WHERE revoked_at IS NULL",
+    """
+    CREATE TABLE IF NOT EXISTS public.platform_session (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      token_hash text NOT NULL UNIQUE,
+      refresh_hash text NOT NULL UNIQUE,
+      csrf_hash text NOT NULL,
+      user_agent text,
+      ip inet,
+      revoked_at timestamptz,
+      expires_at timestamptz NOT NULL,
+      refresh_expires_at timestamptz NOT NULL,
+      last_seen_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_platform_session_active ON public.platform_session(expires_at) WHERE revoked_at IS NULL",
+    """
+    CREATE TABLE IF NOT EXISTS public.payment_customer (
+      tenant_id uuid PRIMARY KEY REFERENCES public.tenant(id) ON DELETE CASCADE,
+      stripe_customer_id text NOT NULL UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS public.subscription (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
+      provider text NOT NULL DEFAULT 'stripe',
+      provider_subscription_id text NOT NULL UNIQUE,
+      status text NOT NULL,
+      plan_code text NOT NULL REFERENCES public.plan(code),
+      current_period_end timestamptz,
+      cancel_at_period_end boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_subscription_tenant_status ON public.subscription(tenant_id, status)",
+    """
+    CREATE TABLE IF NOT EXISTS public.billing_event (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      provider text NOT NULL DEFAULT 'stripe',
+      provider_event_id text NOT NULL UNIQUE,
+      event_type text NOT NULL,
+      tenant_id uuid REFERENCES public.tenant(id) ON DELETE SET NULL,
+      payload jsonb NOT NULL,
+      processed_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS public.usage_counter (
+      tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
+      key text NOT NULL,
+      period_start date NOT NULL,
+      value bigint NOT NULL DEFAULT 0,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (tenant_id, key, period_start)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS public.search_event (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
+      query text NOT NULL,
+      source text NOT NULL CHECK (source IN ('public', 'suggest', 'admin')),
+      result_count int NOT NULL DEFAULT 0,
+      filters jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_search_event_tenant_time ON public.search_event(tenant_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_event_tenant_query ON public.search_event(tenant_id, query)",
+    """
+    CREATE TABLE IF NOT EXISTS public.feedback_event (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
+      url text NOT NULL,
+      rating text NOT NULL CHECK (rating IN ('helpful', 'not_helpful')),
+      message text,
+      user_agent text,
+      ip inet,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_feedback_event_tenant_time ON public.feedback_event(tenant_id, created_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS public.platform_override (
+      tenant_id uuid PRIMARY KEY REFERENCES public.tenant(id) ON DELETE CASCADE,
+      plan_code text REFERENCES public.plan(code),
+      reason text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
     )
     """,
     """
@@ -176,10 +389,16 @@ TENANT_DDL = [
       heading_id uuid NOT NULL UNIQUE REFERENCES heading(id) ON DELETE CASCADE,
       body text NOT NULL,
       description text,
+      status text NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'published')),
+      published_at timestamptz DEFAULT now(),
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )
     """,
+    "ALTER TABLE content ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'published'",
+    "ALTER TABLE content ADD COLUMN IF NOT EXISTS published_at timestamptz DEFAULT now()",
+    "ALTER TABLE content DROP CONSTRAINT IF EXISTS content_status_ck",
+    "ALTER TABLE content ADD CONSTRAINT content_status_ck CHECK (status IN ('draft', 'published'))",
     """
     CREATE TABLE IF NOT EXISTS content_image (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -400,9 +619,17 @@ TENANT_DDL = [
 
 
 async def run_platform_migrations() -> None:
+    params = {
+        **{f"free_{key}": value for key, value in FREE_PLAN_LIMITS.items()},
+        **{f"pro_{key}": value for key, value in PRO_PLAN_LIMITS.items()},
+    }
+    # Advisory lock: sadece bir worker migration çalıştırır, diğerleri bekler
+    # Lock ID sabit (0x444F4353 = "DOCS") — uygulama genelinde benzersiz
+    LOCK_ID = 0x444F4353
     async with engine.begin() as conn:
+        await conn.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": LOCK_ID})
         for stmt in PLATFORM_DDL:
-            await conn.execute(text(stmt), FREE_PLAN_LIMITS)
+            await conn.execute(text(stmt), params)
 
 
 async def provision_tenant_schema(schema_name: str) -> None:
@@ -411,3 +638,15 @@ async def provision_tenant_schema(schema_name: str) -> None:
         await conn.execute(text(f"SET LOCAL search_path TO {quote_ident(schema_name)}, public"))
         for stmt in TENANT_DDL:
             await conn.execute(text(stmt))
+
+
+async def run_tenant_migrations() -> None:
+    async with engine.begin() as conn:
+        result = await conn.execute(text("SELECT schema_name FROM public.tenant"))
+        schemas = [row[0] for row in result.fetchall()]
+
+    for schema_name in schemas:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"SET LOCAL search_path TO {quote_ident(schema_name)}, public"))
+            for stmt in TENANT_DDL:
+                await conn.execute(text(stmt))

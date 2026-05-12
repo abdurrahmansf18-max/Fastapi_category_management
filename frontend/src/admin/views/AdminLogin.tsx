@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../shared/context/SettingsContext";
 import LanguageSwitcher from "../../shared/components/LanguageSwitcher";
+import { AlertTriangle, CheckCircle2, Info, LockKeyhole, Moon, ShieldCheck, Sun, X } from "lucide-react";
 
 // FlashIcon component for login logo
 export function FlashIcon({ className = "w-6 h-6" }: { className?: string }) {
@@ -52,7 +53,7 @@ export default function AdminLogin({
       }
       if (typeof detail === "string") return detail;
     } catch {}
-    return "Giriş yapılamadı. Lütfen bilgilerinizi kontrol edin.";
+    return t("login_failed");
   };
 
   return (
@@ -64,53 +65,6 @@ export default function AdminLogin({
         dark:from-gray-950 dark:via-gray-900 dark:to-gray-800/20
       `}
     >
-      <div className="pointer-events-none absolute inset-0">
-        {/* Light mode enhanced glow */}
-        <div
-          className="absolute top-1/4 left-1/3 w-[800px] h-[800px]
-                        rounded-full blur-3xl bg-emerald-600/20 dark:hidden animate-pulse"
-        />
-        <div
-          className="absolute bottom-1/3 right-1/4 w-[600px] h-[600px]
-                        rounded-full blur-3xl bg-forest-600/15 dark:hidden animate-pulse"
-        />
-        <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px]
-                        rounded-full blur-3xl bg-emerald-700/10 dark:hidden"
-        />
-
-        {/* Dark mode enhanced glow */}
-        <div
-          className="hidden dark:block absolute top-1/4 left-1/3 w-[800px] h-[800px]
-                        rounded-full blur-3xl bg-emerald-600/25 animate-pulse"
-        />
-        <div
-          className="hidden dark:block absolute bottom-1/3 right-1/4 w-[600px] h-[600px]
-                        rounded-full blur-3xl bg-emerald-700/20 animate-pulse"
-        />
-        <div
-          className="hidden dark:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px]
-                        rounded-full blur-3xl bg-emerald-800/15"
-        />
-      </div>
-
-      {/* Enhanced floating particles */}
-      <div className="pointer-events-none absolute inset-0">
-        {[...Array(20)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute w-1 h-1 bg-lime-400/40 dark:bg-lime-400/20 rounded-full animate-pulse"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              animationDelay: `${Math.random() * 3}s`,
-              animationDuration: `${2 + Math.random() * 3}s`,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* --- TOAST (ortalanmış modal) --- */}
       {notification && (
         <>
           <style>{`
@@ -137,21 +91,22 @@ export default function AdminLogin({
               }}
             >
               <div className="flex items-center gap-4">
-                <span className="text-2xl">
-                  {notification.type === "error"
-                    ? "⚠️"
-                    : notification.type === "warning"
-                    ? "💡"
-                    : "✅"}
-                </span>
+                {notification.type === "error" ? (
+                  <AlertTriangle className="h-6 w-6 shrink-0" />
+                ) : notification.type === "warning" ? (
+                  <Info className="h-6 w-6 shrink-0" />
+                ) : (
+                  <CheckCircle2 className="h-6 w-6 shrink-0" />
+                )}
                 <p className="font-medium text-base flex-1">
                   {notification.message}
                 </p>
                 <button
                   onClick={clearNotification}
                   className="ml-2 text-xl leading-none hover:opacity-70 transition-opacity"
+                  aria-label={t("close")}
                 >
-                  ×
+                  <X className="h-5 w-5" />
                 </button>
               </div>
             </div>
@@ -212,9 +167,9 @@ export default function AdminLogin({
                 e.preventDefault();
                 try {
                   await login(email, password);
-                  showNotification(t("success") || "Login successful", "success");
+                  showNotification(t("success"), "success");
                 } catch (err: any) {
-                  showNotification(t("error") || "Login failed", "error");
+                  showNotification(normalizeError(err), "error");
                 }
               }}
               className="space-y-6"
@@ -264,7 +219,14 @@ export default function AdminLogin({
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <span className="relative z-10">
-                  {authLoading ? t("loading") : `🔐 ${t("Login")}`}
+                  {authLoading ? (
+                    t("loading")
+                  ) : (
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <LockKeyhole className="h-5 w-5" />
+                      {t("Login")}
+                    </span>
+                  )}
                 </span>
               </button>
             </form>
@@ -280,7 +242,7 @@ export default function AdminLogin({
               "
             >
               <div className="flex items-start gap-4">
-                <div className="text-2xl">🛡️</div>
+                <ShieldCheck className="mt-1 h-6 w-6 shrink-0" />
                 <div className="text-sm leading-7">
                   <div className="font-bold text-base mb-2">
                     {t("secure_access")}
@@ -306,9 +268,9 @@ export default function AdminLogin({
                   transition-all duration-300 shadow-sm hover:shadow-md
                   text-2xl
                 "
-                aria-label="Tema değiştir"
+                aria-label={theme === "dark" ? t("dark_mode") : t("light_mode")}
               >
-                {theme === "dark" ? "🌙" : "☀️"}
+                {theme === "dark" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
               </button>
               <div className="
                   p-2 rounded-2xl border border-gray-300/60 dark:border-gray-700/50

@@ -67,8 +67,11 @@ content = Table(
            nullable=False, unique=True),
     Column("body", Text, nullable=False),
     Column("description", Text),
+    Column("status", Text, nullable=False, server_default=text("'published'")),
+    Column("published_at", TIMESTAMP(timezone=True), server_default=func.now()),
     Column("created_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("status IN ('draft', 'published')", name="content_status_ck"),
 )
 
 # EKSİK OLAN TABLO: content_image

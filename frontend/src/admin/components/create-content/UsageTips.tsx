@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { Lightbulb } from "lucide-react";
 
 export default function UsageTips() {
   const { t } = useTranslation();
@@ -6,7 +7,7 @@ export default function UsageTips() {
     <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50/50 to-green-50/50 dark:from-emerald-900/10 dark:to-green-900/10 border border-emerald-200/30 dark:border-emerald-800/30">
           <div className="text-sm text-emerald-800 dark:text-emerald-200">
             <div className="font-medium mb-2 flex items-center gap-2">
-              <span>💡</span>
+              <Lightbulb className="h-4 w-4" />
               {t("usage_tips")}
             </div>
             <ul className="space-y-1 text-xs text-emerald-700 dark:text-emerald-300">

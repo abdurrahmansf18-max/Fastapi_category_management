@@ -4,12 +4,14 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.audit import log_audit_event
 from app.core.email import send_verification_email, smtp_configured
+from app.core.rate_limit import enforce_rate_limit
 from app.core.security import pwd_context
 from app.db.provisioning import provision_tenant_schema, schema_name_for_slug
 from app.db.session import engine, platform_execute, platform_fetch_one
@@ -23,7 +25,8 @@ def _hash_token(token: str) -> str:
 
 
 @auth_router.post("/signup", response_model=SignupOut, status_code=201)
-async def signup(payload: SignupIn):
+async def signup(payload: SignupIn, request: Request):
+    await enforce_rate_limit(request, scope="signup", limit=settings.AUTH_RATE_LIMIT)
     schema_name = schema_name_for_slug(payload.tenant_slug)
     password_hash = pwd_context.hash(payload.password)
     token = secrets.token_urlsafe(32)
@@ -80,12 +83,22 @@ async def signup(payload: SignupIn):
                 },
             )
     except IntegrityError as exc:
+        await log_audit_event(
+            action="auth.signup_conflict",
+            request=request,
+            metadata={"email": payload.email, "tenant_slug": payload.tenant_slug},
+        )
         raise HTTPException(
             status_code=409,
             detail="Email or workspace slug already exists",
         ) from exc
 
     send_verification_email(payload.email, verification_link)
+    await log_audit_event(
+        action="auth.signup_created",
+        request=request,
+        metadata={"email": payload.email, "tenant_slug": payload.tenant_slug},
+    )
     return {
         "message": "Verification email sent",
         "tenant_slug": payload.tenant_slug,
@@ -95,7 +108,8 @@ async def signup(payload: SignupIn):
 
 
 @auth_router.post("/verify-email", response_model=VerifyEmailOut)
-async def verify_email(payload: VerifyEmailIn):
+async def verify_email(payload: VerifyEmailIn, request: Request):
+    await enforce_rate_limit(request, scope="verify-email", limit=settings.AUTH_RATE_LIMIT)
     token_hash = _hash_token(payload.token)
     row = await platform_fetch_one(
         """
@@ -127,6 +141,13 @@ async def verify_email(payload: VerifyEmailIn):
             WHERE id = :user_id
             """,
             {"user_id": row["user_id"]},
+        )
+        await log_audit_event(
+            action="auth.email_verified",
+            actor_user_id=str(row["user_id"]),
+            tenant_id=str(row["tenant_id"]),
+            request=request,
+            metadata={"tenant_slug": row["slug"]},
         )
         await platform_execute(
             """

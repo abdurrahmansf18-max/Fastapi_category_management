@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(curl -s http://localhost:8000/healthz)",
+      "Bash(curl -s http://localhost:3000 -o /dev/null -w \"Frontend HTTP status: %{http_code}\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\abdur\\\\Desktop\\\\projects\\\\fastapi_category\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(del backend\\\\append_route.py backend\\\\append_settings_admin.py backend\\\\append_settings_pub.py backend\\\\fix_indents.py backend\\\\rewrite_route.py backend\\\\rewrite_route_base64.py)",
+      "Bash(del frontend\\\\vite.config.ts frontend\\\\src\\\\main.tsx)"
+    ]
+  }
+}

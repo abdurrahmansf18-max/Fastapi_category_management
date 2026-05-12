@@ -1,0 +1,29 @@
+# Test Assets
+
+This folder contains production-readiness smoke assets that complement the unit tests:
+
+- `k6/saas_smoke.js` checks cached public browse, search, and optional admin login latency.
+- Backend unit tests live under `backend/tests`.
+- Postman/Newman collections can keep using cookie-based admin auth; tenant paths must use `/t/{tenant_slug}`.
+- Production migrations are explicit. Run `python backend/run_migration.py` or the `migrate` service before backend instances start.
+- Backup verification is explicit. Run `docker compose -f docker-compose.prod.yml --profile ops run --rm restore-check` to restore the latest Restic snapshot into a temporary directory and verify database/upload/search artifacts exist.
+- Free plan is intentionally restrictive: 1 admin, 3 categories, 20 headings, 20 contents, 20 MB upload, 25 indexed SEO pages, 5 AI formatting actions per month.
+
+Example:
+
+```bash
+k6 run -e BASE_URL=https://docs.example.com -e TENANT_SLUG=demo tests/k6/saas_smoke.js
+k6 run -e BASE_URL=http://localhost:8000 -e API_PREFIX= -e TENANT_SLUG=demo tests/k6/saas_smoke.js
+```
+
+Migration example:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm migrate
+```
+
+Restore-check example:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile ops run --rm restore-check
+```

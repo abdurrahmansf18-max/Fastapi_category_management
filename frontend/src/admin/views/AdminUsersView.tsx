@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { KeyRound, Trash2, Users } from "lucide-react";
 import { itemCard, sectionCard } from "../utils/uiHelpers";
 import CreateAdminForm from "../components/CreateAdminForm";
 import type { AdminUser, UUID } from "../../shared/types/models";
@@ -22,11 +23,10 @@ export default function AdminUsersView({
 
   return (
     <section className={sectionCard}>
-      <div className="pointer-events-none absolute -inset-2 rounded-3xl opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100 bg-gradient-to-br from-emerald-700/20 via-emerald-600/15 to-emerald-800/20" />
       <div className="relative z-10">
         <div className="font-bold mb-8 text-2xl flex items-center gap-4 text-gray-900 dark:text-white">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-700 to-emerald-800 flex items-center justify-center text-2xl text-white shadow-lg">
-            👥
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-emerald-700 text-white">
+            <Users className="h-5 w-5" />
           </div>
           <div>
             <h2>{t("admin_users")}</h2>
@@ -38,7 +38,7 @@ export default function AdminUsersView({
 
         {admins.length === 0 ? (
           <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-            <div className="text-6xl mb-4">👥</div>
+            <Users className="mx-auto mb-4 h-12 w-12" />
             <p className="text-lg font-medium">{t("no_admin_yet")}</p>
             <p className="text-sm">{t("create_first_admin")}</p>
           </div>
@@ -55,9 +55,9 @@ export default function AdminUsersView({
                     <button
                       className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
                       onClick={() => changeAdminPassword(a.id)}
-                      title="Şifre Değiştir"
+                      title={t("change_password")}
                     >
-                      🔐
+                      <KeyRound className="h-4 w-4" />
                     </button>
 
                     <button
@@ -65,7 +65,7 @@ export default function AdminUsersView({
                       onClick={() => deleteAdmin(a.id)}
                       title={t('delete')}
                     >
-                      🗑️
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>

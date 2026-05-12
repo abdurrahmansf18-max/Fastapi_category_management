@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 # ---- Auth/Admin ----
 class TokenOut(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = "cookie"
 
 class SignupIn(BaseModel):
     email: EmailStr
@@ -118,6 +118,7 @@ class ContentBase(BaseModel):
     heading_id: Optional[uuid.UUID] = None
     body: Optional[str] = None
     description: Optional[str] = None
+    status: Optional[str] = Field(default="published", pattern="^(draft|published)$")
 
 class ContentCreate(ContentBase):
     heading_id: uuid.UUID
@@ -126,12 +127,15 @@ class ContentCreate(ContentBase):
 class ContentUpdate(ContentBase):
     body: Optional[str] = None
     description: Optional[str] = None
+    status: Optional[str] = Field(default=None, pattern="^(draft|published)$")
 
 class ContentOut(BaseModel):
     id: uuid.UUID
     heading_id: uuid.UUID
     body: str
     description: Optional[str]
+    status: str = "published"
+    published_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

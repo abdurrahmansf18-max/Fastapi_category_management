@@ -1,12 +1,13 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { AlertTriangle, Edit3, Eye, FileText, Heading3, ImagePlus, Sparkles } from "lucide-react";
 import type { UUID } from "../../shared/types/models";
-import { ContentImagesApi, AI } from "../../shared/api/admin";
+import { AI } from "../../shared/api/admin";
 
 import type { ImagePlaceholder, ImageData } from "./create-content/types";
 import ResizableImagePreview from "./create-content/ResizableImagePreview";
@@ -22,7 +23,8 @@ export default function CreateContentForm({
     headingId: UUID,
     body: string,
     images: ImageData[],
-    description?: string
+    description?: string,
+    status?: "draft" | "published"
   ) => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -51,15 +53,31 @@ export default function CreateContentForm({
   }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAiFormatting, setIsAiFormatting] = useState(false);
+  const [isDraft, setIsDraft] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [formErrors, setFormErrors] = useState<{
     body?: string;
     target?: string;
   }>({});
+  const [formNotice, setFormNotice] = useState<string>("");
 
   useEffect(() => {
     if (targetOptions[0]) setTarget(targetOptions[0].id);
   }, [targetOptions]);
+
+  useEffect(() => {
+    if (!target || typeof window === "undefined") return;
+    const saved = localStorage.getItem(`content_draft:${target}`);
+    if (saved) setBody(saved);
+  }, [target]);
+
+  useEffect(() => {
+    if (!target || typeof window === "undefined") return;
+    const handle = window.setTimeout(() => {
+      localStorage.setItem(`content_draft:${target}`, body);
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [body, target]);
 
   useEffect(() => {
     const regex = /<--image-->/g;
@@ -81,7 +99,7 @@ export default function CreateContentForm({
       index++;
     }
 
-    // Sadece placeholder sayısı değiştiyse state'i güncelle
+    // Keep existing image settings when only placeholder text changes.
     if (matches.length !== imagePlaceholders.length) {
       setImagePlaceholders(matches);
     }
@@ -91,13 +109,13 @@ export default function CreateContentForm({
     const errors: { body?: string; target?: string } = {};
 
     if (!body.trim()) {
-      errors.body = "İçerik boş olamaz";
+      errors.body = t("content_required");
     } else if (body.trim().length < 10) {
-      errors.body = "İçerik en az 10 karakter olmalı";
+      errors.body = t("content_min_length");
     }
 
     if (!target) {
-      errors.target = "Bir başlık seçmelisiniz";
+      errors.target = t("heading_required");
     }
 
     setFormErrors(errors);
@@ -169,7 +187,7 @@ export default function CreateContentForm({
       setBody(response.markdown);
     } catch (error) {
       console.error("AI Error:", error);
-      alert("Yapay zeka formatter hatası. Lütfen konsolu kontrol edin.");
+      setFormNotice(t("ai_format_error"));
     } finally {
       setIsAiFormatting(false);
     }
@@ -194,13 +212,13 @@ export default function CreateContentForm({
 
       // Validate file type
       if (!file.type.startsWith("image/")) {
-        alert("Lütfen sadece resim dosyası seçin");
+        setFormNotice(t("select_only_image"));
         return;
       }
 
       // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
-        alert("Dosya boyutu 5MB'dan küçük olmalı");
+        setFormNotice(t("file_size_max_5mb"));
         return;
       }
 
@@ -210,25 +228,6 @@ export default function CreateContentForm({
             ? { ...img, file, url: "", isValid: true, isUploading: false }
             : img
         )
-      );
-    }
-  };
-
-  const uploadFile = async (file: File): Promise<string> => {
-    try {
-      const result = await ContentImagesApi.upload(
-        file,
-        window.crypto.randomUUID(), // Generate a proper UUID for content_id
-        "", // alt text (will be set later)
-        0 // sort_order
-      );
-      return result.url;
-    } catch (error) {
-      console.error("[v0] Upload failed:", error);
-      throw new Error(
-        `Upload failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
       );
     }
   };
@@ -270,16 +269,14 @@ export default function CreateContentForm({
         }
       }
 
-      await onCreate(target as UUID, body, processedImages);
-      setBody(`# Yeni İçerik
-
-Bu bir **Markdown** içeriktir.
-
-- Madde 1
-- Madde 2
-`);
+      await onCreate(target as UUID, body, processedImages, undefined, isDraft ? "draft" : "published");
+      if (typeof window !== "undefined") {
+        localStorage.removeItem(`content_draft:${target}`);
+      }
+      setBody(t("default_markdown_content"));
       setImagePlaceholders([]);
       setShowPreview(false);
+      setFormNotice("");
     } catch (error) {
       console.error("[v0] Form submission error:", error);
     } finally {
@@ -320,10 +317,17 @@ Bu bir **Markdown** içeriktir.
         </div>
       </div>
 
+      {formNotice && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>{formNotice}</p>
+        </div>
+      )}
+
       <div className="space-y-4">
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
-            <span className="text-emerald-600 dark:text-emerald-400">📑</span>
+            <Heading3 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             {t("target_heading")}
           </label>
           <select
@@ -352,7 +356,7 @@ Bu bir **Markdown** içeriktir.
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
-              <span className="text-emerald-600 dark:text-emerald-400">📝</span>
+              <FileText className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               {t("content_markdown")}
             </label>
             <div className="flex items-center gap-2">
@@ -361,24 +365,27 @@ Bu bir **Markdown** içeriktir.
                   type="button"
                   onClick={autoFormatMarkdown}
                   disabled={isAiFormatting}
-                  className="px-3 py-1.5 text-xs rounded-lg bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors font-medium disabled:opacity-50"
+                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-indigo-100 px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-200 disabled:opacity-50 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
                 >
-                  {isAiFormatting ? "⏳ " + t("ai_formatting") : "🪄 " + t("convert_to_markdown")}
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {isAiFormatting ? t("ai_formatting") : t("convert_to_markdown")}
                 </button>
               )}
               <button
                 type="button"
                 onClick={insertImagePlaceholder}
-                className="px-3 py-1.5 text-xs rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors font-medium"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-blue-100 px-3 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
               >
-                🖼️ {t("add_image")}
+                <ImagePlus className="h-3.5 w-3.5" />
+                {t("add_image")}
               </button>
               <button
                 type="button"
                 onClick={() => setShowPreview(!showPreview)}
-                className="px-3 py-1.5 text-xs rounded-lg bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-900/50 transition-colors font-medium"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-900/50"
               >
-                {showPreview ? `📝 ${t("edit")}` : `👁️ ${t("preview")}`}
+                {showPreview ? <Edit3 className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {showPreview ? t("edit") : t("preview")}
               </button>
             </div>
           </div>
@@ -402,11 +409,11 @@ Bu bir **Markdown** içeriktir.
           ) : (
             <div className="w-full min-h-[240px] rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 p-6 flex flex-col">
               <div className="mb-4 pb-3 border-b border-gray-200/60 dark:border-gray-700/50 flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 opacity-90">
-                <span className="text-base">👁️</span> {t("preview_note")}
+                <Eye className="h-4 w-4" /> {t("preview_note")}
               </div>
               <div className="prose prose-sm dark:prose-invert max-w-none text-gray-900 dark:text-gray-100">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {body.replace(/<--image-->/g, `\n\n> 🖼️ **[ ${t("image")} ]**\n\n`)}
+                  {body.replace(/<--image-->/g, `\n\n> **[ ${t("image")} ]**\n\n`)}
                 </ReactMarkdown>
               </div>
             </div>
@@ -437,6 +444,16 @@ Bu bir **Markdown** içeriktir.
 
         <UsageTips />
 
+        <label className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-200">
+          <span>{isDraft ? t("status_draft") : t("status_published")}</span>
+          <input
+            type="checkbox"
+            checked={isDraft}
+            onChange={(event) => setIsDraft(event.target.checked)}
+            className="h-5 w-5 rounded border-gray-300 text-emerald-700 focus:ring-emerald-600"
+          />
+        </label>
+
         <button
           type="submit"
           disabled={!isFormValid || isSubmitting}
@@ -455,7 +472,7 @@ Bu bir **Markdown** içeriktir.
             </div>
           ) : (
             <div className="flex items-center justify-center gap-2">
-              <span>✨</span>
+              <Sparkles className="h-4 w-4" />
               <span>{t("add_content")}</span>
               {imagePlaceholders.length > 0 && (
                 <span className="text-xs opacity-80">

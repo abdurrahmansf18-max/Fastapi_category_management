@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+  @apply bg-white text-gray-900;
+}
+
+html.dark {
+  @apply bg-gray-950 text-gray-50;
+}
+
+* {
+  min-width: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  overflow-wrap: anywhere;
+}
+
+button,
+a {
+  touch-action: manipulation;
+}
+
+/* Thin scrollbar for sidebar panels */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.dark .thin-scroll {
+  scrollbar-color: #374151 transparent;
+}
+.thin-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  border-radius: 2px;
+  background-color: #d1d5db;
+}
+.dark .thin-scroll::-webkit-scrollbar-thumb {
+  background-color: #374151;
+}
