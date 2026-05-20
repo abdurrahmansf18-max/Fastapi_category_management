@@ -1,0 +1,64 @@
+# Geliştirme modu override — kaynak kodu hot-reload ile çalıştırır.
+# Kullanım:
+#   docker compose -f docker-compose.local.yml -f docker-compose.dev.yml --env-file .env.local up -d
+#
+# İlk kurulum (sadece bir kez):
+#   docker compose -f docker-compose.local.yml -f docker-compose.dev.yml --env-file .env.local build frontend backend
+
+services:
+
+  # Backend: gunicorn yerine uvicorn --reload
+  # Python dosyası değişince ~2 saniyede otomatik yeniden yüklenir.
+  backend:
+    command:
+      - uvicorn
+      - main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+      - ops_status:/ops-status:ro
+
+  # Worker: kaynak kodu backend ile paylaşır (--reload gerekmez, restart yeterli)
+  worker:
+    volumes:
+      - ./backend:/app
+      - uploads:/app/uploads
+
+  # Beat: görev/schedule kod güncellemelerini de anında görsün.
+  beat:
+    volumes:
+      - ./backend:/app
+
+  # Frontend: production build yerine Next.js dev server
+  # Kaynak dosya değişince ~1 saniyede tarayıcıya yansır (Fast Refresh).
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+      args:
+        NEXT_BACKEND_ORIGIN: http://backend:8000
+    environment:
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_BACKEND_ORIGIN=http://backend:8000
+      - NEXT_INTERNAL_API_BASE=http://backend:8000
+      - NEXT_PUBLIC_API_BASE=/api
+      - NEXT_PUBLIC_SITE_URL=http://localhost:3000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next_cache:/app/.next
+
+volumes:
+  frontend_node_modules:
+  frontend_next_cache:
+  uploads:
+  ops_status:

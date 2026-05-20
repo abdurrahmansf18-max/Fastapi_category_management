@@ -26,24 +26,34 @@ from app.core.sessions import (
 from app.core.tenancy import (
     enforce_tenant_limit,
     get_tenant_context,
-    increment_tenant_usage_or_403,
     require_tenant_context,
     tenant_usage_value,
 )
 from app.db.session import fetch_one, fetch_all, execute, platform_execute, platform_fetch_one, platform_fetch_all
-from app.db.models import admin_user as t_admin, category as t_category, heading as t_heading, content as t_content, content_image as t_content_image
+from app.db.models import (
+    admin_user as t_admin,
+    category as t_category,
+    heading as t_heading,
+    content as t_content,
+    content_image as t_content_image,
+    content_attachment as t_content_attachment,
+    redirect_rule as t_redirect_rule,
+)
 from app.schemas import (
     TokenOut, AdminInitIn, AdminCreateIn, AdminOut, AdminPasswordIn,
     CategoryCreate, CategoryUpdate, CategoryOut,
     HeadingCreate, HeadingUpdate, HeadingOut,
     ContentCreate, ContentUpdate, ContentOut,
     ContentImageCreate, ContentImageUpdate, ContentImageOut,
+    ContentAttachmentCreate, ContentAttachmentUpdate, ContentAttachmentOut,
+    RedirectRuleCreate, RedirectRuleUpdate, RedirectRuleOut,
     SearchResult,
 )
 from fastapi import File, UploadFile, Form
 from app.core.cache import invalidate_cache_prefix, tenant_public_cache_prefix
 from app.core.storage import LocalStorage
 from app.core.config import settings
+from app.core.observability import observe_queue_task
 from app.core.search import record_search_event, tenant_seo_urls
 from urllib.parse import urlparse
 from pathlib import Path
@@ -56,6 +66,51 @@ admin_router = APIRouter(
 )
 storage = LocalStorage()  # env'den UPLOADS_DIR + STATIC_BASE_URL alır
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+
+CONTENT_MIN_LENGTH = 120
+
+
+def _description_limit_for_body(body: str) -> int:
+    body_len = len((body or "").strip())
+    return min(320, max(80, int(body_len * 0.20)))
+
+
+def _validate_content_quality(body: str, description: str | None) -> None:
+    normalized_body = (body or "").strip()
+    if len(normalized_body) < CONTENT_MIN_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Content body must be at least {CONTENT_MIN_LENGTH} characters.",
+        )
+    if description:
+        max_len = _description_limit_for_body(normalized_body)
+        if len(description) > max_len:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Description is too long for this content. Max {max_len} characters.",
+            )
+
+
+def _normalize_redirect_path(path: str) -> str:
+    normalized = (path or "").strip()
+    if not normalized.startswith("/"):
+        normalized = "/" + normalized
+    normalized = re.sub(r"/{2,}", "/", normalized)
+    if len(normalized) > 1 and normalized.endswith("/"):
+        normalized = normalized.rstrip("/")
+    if "://" in normalized:
+        raise HTTPException(status_code=422, detail="Redirect path must be relative")
+    return normalized
+
+
+def _validate_redirect_payload(source_path: str, target_path: str, status_code: int) -> tuple[str, str]:
+    src = _normalize_redirect_path(source_path)
+    dst = _normalize_redirect_path(target_path)
+    if src == dst:
+        raise HTTPException(status_code=422, detail="Source and target paths cannot be the same")
+    if status_code not in {301, 302, 307, 308}:
+        raise HTTPException(status_code=422, detail="Unsupported redirect status code")
+    return src, dst
 
 
 async def invalidate_current_tenant_public_cache() -> None:
@@ -393,9 +448,14 @@ async def create_category(payload: CategoryCreate, _=Depends(get_current_admin))
     try:
         stmt = (
             insert(t_category)
-            .values(name=payload.name, description=payload.description, sort_order=payload.sort_order or 0)
+            .values(
+                name=payload.name,
+                description=payload.description,
+                seo_description=payload.seo_description,
+                sort_order=payload.sort_order or 0,
+            )
             .returning(
-                t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description,
+                t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description, t_category.c.seo_description,
                 t_category.c.sort_order, t_category.c.created_at, t_category.c.updated_at
             )
         )
@@ -410,7 +470,7 @@ async def create_category(payload: CategoryCreate, _=Depends(get_current_admin))
 async def list_categories(_=Depends(get_current_admin)):
     stmt = (
         select(
-            t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description,
+            t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description, t_category.c.seo_description,
             t_category.c.sort_order, t_category.c.created_at, t_category.c.updated_at
         )
         .order_by(t_category.c.sort_order, t_category.c.name)
@@ -421,7 +481,7 @@ async def list_categories(_=Depends(get_current_admin)):
 async def get_category(id: uuid.UUID, _=Depends(get_current_admin)):
     stmt = (
         select(
-            t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description,
+            t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description, t_category.c.seo_description,
             t_category.c.sort_order, t_category.c.created_at, t_category.c.updated_at
         )
         .where(t_category.c.id == id)
@@ -439,7 +499,7 @@ async def update_category(id: uuid.UUID, payload: CategoryUpdate, _=Depends(get_
         .where(t_category.c.id == id)
         .values(**data)
         .returning(
-            t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description,
+            t_category.c.id, t_category.c.name, t_category.c.slug, t_category.c.description, t_category.c.seo_description,
             t_category.c.sort_order, t_category.c.created_at, t_category.c.updated_at
         )
     )
@@ -470,15 +530,18 @@ async def create_heading(payload: HeadingCreate, _=Depends(get_current_admin)):
             parent_heading_id=payload.parent_heading_id,
             title=payload.title,
             description=payload.description,
+            seo_description=payload.seo_description,
             sort_order=payload.sort_order or 0,
         )
         .returning(
             t_heading.c.id, t_heading.c.level, t_heading.c.category_id, t_heading.c.parent_heading_id,
-            t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.sort_order,
+            t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.seo_description, t_heading.c.sort_order,
             t_heading.c.created_at, t_heading.c.updated_at
         )
     )
     rows = await execute(stmt)
+    if not rows:
+        raise HTTPException(404, "Content not found")
     await invalidate_current_tenant_public_cache()
     return rows[0]
 
@@ -491,7 +554,7 @@ async def list_headings(
 ):
     stmt = select(
         t_heading.c.id, t_heading.c.level, t_heading.c.category_id, t_heading.c.parent_heading_id,
-        t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.sort_order,
+        t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.seo_description, t_heading.c.sort_order,
         t_heading.c.created_at, t_heading.c.updated_at
     )
 
@@ -513,7 +576,7 @@ async def list_headings(
 async def get_heading(id: uuid.UUID, _=Depends(get_current_admin)):
     stmt = select(
         t_heading.c.id, t_heading.c.level, t_heading.c.category_id, t_heading.c.parent_heading_id,
-        t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.sort_order,
+        t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.seo_description, t_heading.c.sort_order,
         t_heading.c.created_at, t_heading.c.updated_at
     ).where(t_heading.c.id == id)
     row = await fetch_one(stmt)
@@ -530,7 +593,7 @@ async def update_heading(id: uuid.UUID, payload: HeadingUpdate, _=Depends(get_cu
         .values(**data)
         .returning(
             t_heading.c.id, t_heading.c.level, t_heading.c.category_id, t_heading.c.parent_heading_id,
-            t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.sort_order,
+            t_heading.c.title, t_heading.c.slug, t_heading.c.description, t_heading.c.seo_description, t_heading.c.sort_order,
             t_heading.c.created_at, t_heading.c.updated_at
         )
     )
@@ -553,6 +616,7 @@ async def delete_heading(id: uuid.UUID, _=Depends(get_current_admin)):
 @admin_router.post("/contents", response_model=ContentOut)
 async def create_content(payload: ContentCreate, _=Depends(get_current_admin)):
     await enforce_tenant_limit("contents")
+    _validate_content_quality(payload.body, payload.description)
     # heading başına tek içerik kuralı - var mı?
     stmt_exists = select(t_content.c.id).where(t_content.c.heading_id == payload.heading_id)
     exists = await fetch_one(stmt_exists)
@@ -605,7 +669,15 @@ async def get_content(id: uuid.UUID, _=Depends(get_current_admin)):
 
 @admin_router.put("/contents/{id}", response_model=ContentOut)
 async def update_content(id: uuid.UUID, payload: ContentUpdate, _=Depends(get_current_admin)):
+    current_row = await fetch_one(
+        select(t_content.c.id, t_content.c.body, t_content.c.description).where(t_content.c.id == id)
+    )
+    if not current_row:
+        raise HTTPException(404, "Content not found")
     data = payload.model_dump(exclude_unset=True)
+    next_body = data.get("body", current_row["body"])
+    next_description = data.get("description", current_row["description"])
+    _validate_content_quality(next_body, next_description)
     if data.get("status") == "published":
         data["published_at"] = func.now()
     elif data.get("status") == "draft":
@@ -621,8 +693,6 @@ async def update_content(id: uuid.UUID, payload: ContentUpdate, _=Depends(get_cu
         )
     )
     rows = await execute(stmt)
-    if not rows:
-        raise HTTPException(404, "Content not found")
     await invalidate_current_tenant_public_cache()
     return rows[0]
 
@@ -803,6 +873,305 @@ async def delete_content_image(id: uuid.UUID, _=Depends(get_current_admin)):
     return
 
 
+# ---- Content Attachment CRUD ----
+@admin_router.post("/content-attachments", response_model=ContentAttachmentOut)
+async def create_content_attachment(payload: ContentAttachmentCreate, _=Depends(get_current_admin)):
+    exists = await fetch_one(select(t_content.c.id).where(t_content.c.id == payload.content_id))
+    if not exists:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    stmt = (
+        insert(t_content_attachment)
+        .values(
+            content_id=payload.content_id,
+            url=payload.url,
+            label=payload.label or "",
+            file_name=payload.file_name or "attachment",
+            mime_type=payload.mime_type or "application/octet-stream",
+            size_bytes=payload.size_bytes or 0,
+            sort_order=payload.sort_order or 0,
+        )
+        .returning(
+            t_content_attachment.c.id,
+            t_content_attachment.c.content_id,
+            t_content_attachment.c.url,
+            t_content_attachment.c.label,
+            t_content_attachment.c.file_name,
+            t_content_attachment.c.mime_type,
+            t_content_attachment.c.size_bytes,
+            t_content_attachment.c.sort_order,
+            t_content_attachment.c.created_at,
+            t_content_attachment.c.updated_at,
+        )
+    )
+    rows = await execute(stmt)
+    await invalidate_current_tenant_public_cache()
+    return rows[0]
+
+
+@admin_router.get("/content-attachments", response_model=List[ContentAttachmentOut])
+async def list_content_attachments(
+    request: Request,
+    content_id: Optional[uuid.UUID] = Query(None),
+    _=Depends(get_current_admin),
+):
+    stmt = select(
+        t_content_attachment.c.id,
+        t_content_attachment.c.content_id,
+        t_content_attachment.c.url,
+        t_content_attachment.c.label,
+        t_content_attachment.c.file_name,
+        t_content_attachment.c.mime_type,
+        t_content_attachment.c.size_bytes,
+        t_content_attachment.c.sort_order,
+        t_content_attachment.c.created_at,
+        t_content_attachment.c.updated_at,
+    )
+    if content_id:
+        stmt = stmt.where(t_content_attachment.c.content_id == content_id)
+    stmt = stmt.order_by(t_content_attachment.c.sort_order, t_content_attachment.c.created_at)
+    rows = await fetch_all(stmt)
+    result = []
+    for row in rows:
+        data = dict(row)
+        if data.get("url"):
+            data["url"] = _abs_url(request, data["url"])
+        result.append(data)
+    return result
+
+
+@admin_router.get("/content-attachments/{id}", response_model=ContentAttachmentOut)
+async def get_content_attachment(id: uuid.UUID, request: Request, _=Depends(get_current_admin)):
+    stmt = select(
+        t_content_attachment.c.id,
+        t_content_attachment.c.content_id,
+        t_content_attachment.c.url,
+        t_content_attachment.c.label,
+        t_content_attachment.c.file_name,
+        t_content_attachment.c.mime_type,
+        t_content_attachment.c.size_bytes,
+        t_content_attachment.c.sort_order,
+        t_content_attachment.c.created_at,
+        t_content_attachment.c.updated_at,
+    ).where(t_content_attachment.c.id == id)
+    row = await fetch_one(stmt)
+    if not row:
+        raise HTTPException(404, "Content attachment not found")
+    data = dict(row)
+    if data.get("url"):
+        data["url"] = _abs_url(request, data["url"])
+    return data
+
+
+@admin_router.put("/content-attachments/{id}", response_model=ContentAttachmentOut)
+async def update_content_attachment(id: uuid.UUID, payload: ContentAttachmentUpdate, _=Depends(get_current_admin)):
+    data = payload.model_dump(exclude_unset=True)
+    stmt = (
+        update(t_content_attachment)
+        .where(t_content_attachment.c.id == id)
+        .values(**data)
+        .returning(
+            t_content_attachment.c.id,
+            t_content_attachment.c.content_id,
+            t_content_attachment.c.url,
+            t_content_attachment.c.label,
+            t_content_attachment.c.file_name,
+            t_content_attachment.c.mime_type,
+            t_content_attachment.c.size_bytes,
+            t_content_attachment.c.sort_order,
+            t_content_attachment.c.created_at,
+            t_content_attachment.c.updated_at,
+        )
+    )
+    rows = await execute(stmt)
+    if not rows:
+        raise HTTPException(404, "Content attachment not found")
+    await invalidate_current_tenant_public_cache()
+    return rows[0]
+
+
+@admin_router.post("/content-attachments/upload", response_model=ContentAttachmentOut, status_code=201)
+async def upload_content_attachment(
+    content_id: uuid.UUID = Form(...),
+    file: UploadFile = File(...),
+    label: Optional[str] = Form(None),
+    sort_order: Optional[int] = Form(0),
+    _=Depends(get_current_admin),
+):
+    tenant = get_tenant_context()
+    exists = await fetch_one(select(t_content.c.id).where(t_content.c.id == content_id))
+    if not exists:
+        raise HTTPException(status_code=404, detail="Content not found")
+
+    try:
+        _, public_url, size_bytes, mime_type, file_name = await storage.save_file(
+            file,
+            tenant_slug=tenant.slug,
+            max_total_bytes=tenant.max_upload_bytes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    stmt = (
+        insert(t_content_attachment)
+        .values(
+            content_id=content_id,
+            url=public_url,
+            label=(label or "").strip(),
+            file_name=file_name,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            sort_order=sort_order or 0,
+        )
+        .returning(
+            t_content_attachment.c.id,
+            t_content_attachment.c.content_id,
+            t_content_attachment.c.url,
+            t_content_attachment.c.label,
+            t_content_attachment.c.file_name,
+            t_content_attachment.c.mime_type,
+            t_content_attachment.c.size_bytes,
+            t_content_attachment.c.sort_order,
+            t_content_attachment.c.created_at,
+            t_content_attachment.c.updated_at,
+        )
+    )
+    rows = await execute(stmt)
+    await invalidate_current_tenant_public_cache()
+    return rows[0]
+
+
+@admin_router.delete("/content-attachments/{id}", status_code=204)
+async def delete_content_attachment(id: uuid.UUID, _=Depends(get_current_admin)):
+    tenant = get_tenant_context()
+    row = await fetch_one(
+        select(t_content_attachment.c.id, t_content_attachment.c.url).where(t_content_attachment.c.id == id)
+    )
+    if not row:
+        raise HTTPException(404, "Content attachment not found")
+
+    del_rows = await execute(
+        delete(t_content_attachment).where(t_content_attachment.c.id == id).returning(t_content_attachment.c.id)
+    )
+    if not del_rows:
+        raise HTTPException(404, "Content attachment not found")
+
+    parsed = urlparse(row["url"])
+    fname = Path(parsed.path).name
+    fpath = Path(settings.ABS_UPLOADS_DIR) / tenant.slug / fname
+    try:
+        fpath.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    await invalidate_current_tenant_public_cache()
+    return
+
+
+# ---- Redirect Rule CRUD ----
+@admin_router.post("/redirects", response_model=RedirectRuleOut, status_code=201)
+async def create_redirect_rule(payload: RedirectRuleCreate, _=Depends(get_current_admin)):
+    source_path, target_path = _validate_redirect_payload(
+        payload.source_path,
+        payload.target_path,
+        payload.status_code or 301,
+    )
+    stmt = (
+        insert(t_redirect_rule)
+        .values(
+            source_path=source_path,
+            target_path=target_path,
+            status_code=payload.status_code or 301,
+            is_active=True if payload.is_active is None else payload.is_active,
+            note=payload.note,
+        )
+        .returning(
+            t_redirect_rule.c.id,
+            t_redirect_rule.c.source_path,
+            t_redirect_rule.c.target_path,
+            t_redirect_rule.c.status_code,
+            t_redirect_rule.c.is_active,
+            t_redirect_rule.c.note,
+            t_redirect_rule.c.created_at,
+            t_redirect_rule.c.updated_at,
+        )
+    )
+    try:
+        rows = await execute(stmt)
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Redirect source already exists") from exc
+    await invalidate_current_tenant_public_cache()
+    return rows[0]
+
+
+@admin_router.get("/redirects", response_model=List[RedirectRuleOut])
+async def list_redirect_rules(_=Depends(get_current_admin)):
+    stmt = select(
+        t_redirect_rule.c.id,
+        t_redirect_rule.c.source_path,
+        t_redirect_rule.c.target_path,
+        t_redirect_rule.c.status_code,
+        t_redirect_rule.c.is_active,
+        t_redirect_rule.c.note,
+        t_redirect_rule.c.created_at,
+        t_redirect_rule.c.updated_at,
+    ).order_by(t_redirect_rule.c.updated_at.desc())
+    return await fetch_all(stmt)
+
+
+@admin_router.put("/redirects/{id}", response_model=RedirectRuleOut)
+async def update_redirect_rule(id: uuid.UUID, payload: RedirectRuleUpdate, _=Depends(get_current_admin)):
+    current_row = await fetch_one(
+        select(
+            t_redirect_rule.c.id,
+            t_redirect_rule.c.source_path,
+            t_redirect_rule.c.target_path,
+            t_redirect_rule.c.status_code,
+        ).where(t_redirect_rule.c.id == id)
+    )
+    if not current_row:
+        raise HTTPException(status_code=404, detail="Redirect rule not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    source_path = data.get("source_path", current_row["source_path"])
+    target_path = data.get("target_path", current_row["target_path"])
+    status_code = data.get("status_code", current_row["status_code"])
+    src, dst = _validate_redirect_payload(source_path, target_path, status_code)
+    data["source_path"] = src
+    data["target_path"] = dst
+
+    stmt = (
+        update(t_redirect_rule)
+        .where(t_redirect_rule.c.id == id)
+        .values(**data)
+        .returning(
+            t_redirect_rule.c.id,
+            t_redirect_rule.c.source_path,
+            t_redirect_rule.c.target_path,
+            t_redirect_rule.c.status_code,
+            t_redirect_rule.c.is_active,
+            t_redirect_rule.c.note,
+            t_redirect_rule.c.created_at,
+            t_redirect_rule.c.updated_at,
+        )
+    )
+    try:
+        rows = await execute(stmt)
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Redirect source already exists") from exc
+    await invalidate_current_tenant_public_cache()
+    return rows[0]
+
+
+@admin_router.delete("/redirects/{id}", status_code=204)
+async def delete_redirect_rule(id: uuid.UUID, _=Depends(get_current_admin)):
+    rows = await execute(delete(t_redirect_rule).where(t_redirect_rule.c.id == id).returning(t_redirect_rule.c.id))
+    if not rows:
+        raise HTTPException(status_code=404, detail="Redirect rule not found")
+    await invalidate_current_tenant_public_cache()
+    return
+
+
 # ---- Admin Search (TRGM) ----
 @admin_router.get("/search", response_model=List[SearchResult])
 async def admin_search(
@@ -833,16 +1202,21 @@ async def admin_search(
 @admin_router.post("/search/reindex", status_code=202)
 async def reindex_search(current=Depends(get_current_admin)):
     tenant = get_tenant_context()
-    # Try Celery worker first; if unavailable, run synchronously
     try:
         from app.worker import reindex_tenant_task
+
         task = reindex_tenant_task.delay(tenant.slug)
         result = {"queued": True, "task_id": task.id, "tenant_slug": tenant.slug}
-    except Exception:
-        from app.core.search import reindex_tenant_search
-        result = await reindex_tenant_search(tenant)
-        result["queued"] = False
-        result["tenant_slug"] = tenant.slug
+        observe_queue_task("search.reindex_tenant", "submitted")
+    except Exception as exc:
+        await log_audit_event(
+            action="admin.search_reindex_queue_failed",
+            actor_user_id=current["id"],
+            tenant_id=tenant.id,
+            metadata={"tenant_slug": tenant.slug, "error": str(exc)},
+        )
+        raise HTTPException(status_code=503, detail="Search reindex queue is unavailable") from exc
+
     await log_audit_event(
         action="admin.search_reindex_queued",
         actor_user_id=current["id"],
@@ -850,6 +1224,23 @@ async def reindex_search(current=Depends(get_current_admin)):
         metadata=result,
     )
     return result
+
+
+@admin_router.get("/search/reindex/{task_id}")
+async def reindex_search_status(task_id: str, _=Depends(get_current_admin)):
+    try:
+        from app.worker import celery_app
+        from celery.result import AsyncResult
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Queue backend is unavailable") from exc
+
+    task = AsyncResult(task_id, app=celery_app)
+    payload = {"task_id": task_id, "state": task.state}
+    if task.state == "SUCCESS":
+        payload["result"] = task.result
+    elif task.state in {"FAILURE", "REVOKED"}:
+        payload["error"] = str(task.result)
+    return payload
 
 
 @admin_router.get("/search/analytics")
@@ -935,53 +1326,6 @@ async def broken_links(_=Depends(get_current_admin)):
             if path not in valid_urls:
                 broken.append({"content_id": str(row["id"]), "url": raw_url})
     return {"count": len(broken), "broken_links": broken[:100]}
-
-
-import os
-from pydantic import BaseModel
-
-class FormatMarkdownRequest(BaseModel):
-    text: str
-
-@admin_router.post("/format-markdown")
-async def format_markdown(req: FormatMarkdownRequest, current: dict = Depends(get_current_admin)):
-    tenant = get_tenant_context()
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured on server")
-    await increment_tenant_usage_or_403("ai_monthly", tenant.ai_monthly_limit)
-    try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        prompt = f"""Sen profesyonel bir Markdown formatlayıcısısın. Sana verilen metni zengin Markdown formatına çevir.
-
-Kurallar:
-1. Kod parçalarını (```python vb.) aynı şekilde koru.
-2. Listeleri (-, 1.) aynı şekilde alt alta koru.
-3. Basşlıkları (#) uygun şekilde koru.
-4. Paragrafları bozma, satır arası boşluk Koy.
-5. Sadece Markdown kodunu döndür, baştaki ve sondaki açıklayıcımarkdown ibarelerini alma.
-
-Metin:
-{req.text}"""
-        response = model.generate_content(prompt)
-        text = response.text
-        if text.startswith("```markdown") and text.endswith("```"):
-            text = text[11:-3].strip()
-        elif text.startswith("```") and text.endswith("```"):
-            text = text[3:-3].strip()
-        await log_audit_event(
-            action="admin.ai_format_markdown",
-            actor_user_id=current["id"],
-            tenant_id=tenant.id,
-            metadata={"text_length": len(req.text)},
-        )
-        return {"markdown": text}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 
 # ---- Site Settings ----

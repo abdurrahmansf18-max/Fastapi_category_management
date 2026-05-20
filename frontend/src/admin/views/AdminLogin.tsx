@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettings } from "../../shared/context/SettingsContext";
 import LanguageSwitcher from "../../shared/components/LanguageSwitcher";
-import { AlertTriangle, CheckCircle2, Info, LockKeyhole, Moon, ShieldCheck, Sun, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Info, LockKeyhole, Moon, ShieldCheck, Sun, X } from "lucide-react";
 
 // FlashIcon component for login logo
 export function FlashIcon({ className = "w-6 h-6" }: { className?: string }) {
@@ -43,6 +43,7 @@ export default function AdminLogin({
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
 
   const normalizeError = (err: any): string => {
     try {
@@ -190,20 +191,30 @@ export default function AdminLogin({
                   "
                 />
 
-                <input
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  type="password"
-                  placeholder={t("password_placeholder")}
-                  className="
-                    w-full rounded-2xl border border-gray-300/60 dark:border-gray-700/50
-                    bg-white/90 dark:bg-gray-800/80 px-6 py-4 text-lg
-                    text-gray-900 dark:text-gray-100 shadow-sm
-                    focus:ring-2 focus:ring-lime-500 focus:border-lime-500 outline-none
-                    transition-all duration-300 placeholder:text-gray-500
-                    hover:border-lime-400/50 hover:shadow-md hover:shadow-lime-500/10
-                  "
-                />
+                <div className="relative">
+                  <input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type={showPw ? "text" : "password"}
+                    placeholder={t("password_placeholder")}
+                    className="
+                      w-full rounded-2xl border border-gray-300/60 dark:border-gray-700/50
+                      bg-white/90 dark:bg-gray-800/80 px-6 py-4 pr-14 text-lg
+                      text-gray-900 dark:text-gray-100 shadow-sm
+                      focus:ring-2 focus:ring-lime-500 focus:border-lime-500 outline-none
+                      transition-all duration-300 placeholder:text-gray-500
+                      hover:border-lime-400/50 hover:shadow-md hover:shadow-lime-500/10
+                    "
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw((v) => !v)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    tabIndex={-1}
+                  >
+                    {showPw ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
+                </div>
               </div>
 
               <button

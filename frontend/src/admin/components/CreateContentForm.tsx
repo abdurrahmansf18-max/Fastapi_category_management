@@ -5,11 +5,10 @@ import { useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, Edit3, Eye, FileText, Heading3, ImagePlus, Sparkles } from "lucide-react";
+import { AlertTriangle, Edit3, Eye, FileText, Heading3, ImagePlus, Info, Sparkles } from "lucide-react";
 import type { UUID } from "../../shared/types/models";
-import { AI } from "../../shared/api/admin";
 
-import type { ImagePlaceholder, ImageData } from "./create-content/types";
+import type { ImagePlaceholder, ImageData, AttachmentData } from "./create-content/types";
 import ResizableImagePreview from "./create-content/ResizableImagePreview";
 import UsageTips from "./create-content/UsageTips";
 import ImagePlaceholderList from "./create-content/ImagePlaceholderList";
@@ -23,13 +22,21 @@ export default function CreateContentForm({
     headingId: UUID,
     body: string,
     images: ImageData[],
+    attachments: AttachmentData[],
     description?: string,
     status?: "draft" | "published"
   ) => void;
 }) {
   const { t, i18n } = useTranslation();
   const [body, setBody] = useState<string>(() => t("default_markdown_content"));
+  const [description, setDescription] = useState("");
+  const BODY_MIN = 120;
+  const dynamicDescMax = Math.min(320, Math.max(80, Math.floor(body.trim().length * 0.2)));
   const prevLang = useRef(i18n.language);
+
+  useEffect(() => {
+    setDescription((prev) => (prev.length > dynamicDescMax ? prev.slice(0, dynamicDescMax) : prev));
+  }, [dynamicDescMax]);
 
   useEffect(() => {
     if (prevLang.current !== i18n.language) {
@@ -52,8 +59,8 @@ export default function CreateContentForm({
     [key: number]: boolean;
   }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isAiFormatting, setIsAiFormatting] = useState(false);
   const [isDraft, setIsDraft] = useState(false);
+  const [attachments, setAttachments] = useState<AttachmentData[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [formErrors, setFormErrors] = useState<{
     body?: string;
@@ -82,10 +89,9 @@ export default function CreateContentForm({
   useEffect(() => {
     const regex = /<--image-->/g;
     const matches = [];
-    let match;
     let index = 0;
 
-    while ((match = regex.exec(body)) !== null) {
+    while (regex.exec(body) !== null) {
       const existingImg = imagePlaceholders[index];
       matches.push({
         index,
@@ -110,7 +116,7 @@ export default function CreateContentForm({
 
     if (!body.trim()) {
       errors.body = t("content_required");
-    } else if (body.trim().length < 10) {
+    } else if (body.trim().length < BODY_MIN) {
       errors.body = t("content_min_length");
     }
 
@@ -144,8 +150,8 @@ export default function CreateContentForm({
   const isValidImageUrl = (url: string): boolean => {
     if (!url) return false;
     try {
-      new URL(url);
-      return /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(url);
+      const parsed = new URL(url);
+      return parsed.protocol === "https:" || parsed.protocol === "http:";
     } catch {
       return false;
     }
@@ -176,21 +182,6 @@ export default function CreateContentForm({
     }
 
     setBody(newBody);
-  };
-
-
-  const autoFormatMarkdown = async () => {
-    if (!body.trim()) return;
-    setIsAiFormatting(true);
-    try {
-      const response = await AI.formatMarkdown(body);
-      setBody(response.markdown);
-    } catch (error) {
-      console.error("AI Error:", error);
-      setFormNotice(t("ai_format_error"));
-    } finally {
-      setIsAiFormatting(false);
-    }
   };
 
   const insertImagePlaceholder = () => {
@@ -232,6 +223,31 @@ export default function CreateContentForm({
     }
   };
 
+  const handleAttachmentFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const next: AttachmentData[] = [];
+    for (const file of Array.from(files)) {
+      next.push({
+        file,
+        label: file.name,
+        sortOrder: attachments.length + next.length,
+      });
+    }
+    setAttachments((prev) => [...prev, ...next]);
+    e.target.value = "";
+  };
+
+  const updateAttachmentLabel = (index: number, value: string) => {
+    setAttachments((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, label: value.slice(0, 120) } : item))
+    );
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index).map((item, i) => ({ ...item, sortOrder: i })));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -269,12 +285,21 @@ export default function CreateContentForm({
         }
       }
 
-      await onCreate(target as UUID, body, processedImages, undefined, isDraft ? "draft" : "published");
+      await onCreate(
+        target as UUID,
+        body,
+        processedImages,
+        attachments,
+        description.trim() || undefined,
+        isDraft ? "draft" : "published"
+      );
       if (typeof window !== "undefined") {
         localStorage.removeItem(`content_draft:${target}`);
       }
       setBody(t("default_markdown_content"));
+      setDescription("");
       setImagePlaceholders([]);
+      setAttachments([]);
       setShowPreview(false);
       setFormNotice("");
     } catch (error) {
@@ -353,28 +378,67 @@ export default function CreateContentForm({
           )}
         </div>
 
+        {/* SEO Description */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+            <Info className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            {t("content_description_label")}
+            <span className="text-xs font-normal text-gray-400">({t("optional")})</span>
+          </label>
+
+          {/* SEO guidance box */}
+          <div className="rounded-xl border border-sky-200/70 bg-sky-50/60 px-4 py-3 dark:border-sky-700/30 dark:bg-sky-900/15">
+            <p className="text-xs font-semibold text-sky-700 dark:text-sky-400 mb-1">{t("seo_guide_title")}</p>
+            <ul className="text-xs text-sky-600 dark:text-sky-400 space-y-0.5 list-disc list-inside">
+              <li>{t("seo_guide_1")}</li>
+              <li>{t("seo_guide_2")}</li>
+              <li>{t("seo_guide_3")}</li>
+            </ul>
+          </div>
+
+          <div className="relative">
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value.slice(0, dynamicDescMax))}
+              rows={2}
+              placeholder={t("content_description_placeholder")}
+              className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all duration-200 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 resize-none pr-16"
+            />
+            <span className={`absolute bottom-2.5 right-3 text-xs font-mono tabular-nums ${
+              description.length >= dynamicDescMax
+                ? "text-red-500"
+                : description.length >= 120
+                ? "text-amber-500"
+                : description.length >= 70
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-gray-400"
+            }`}>
+              {description.length}/{dynamicDescMax}
+            </span>
+          </div>
+
+          {description.length > 0 && description.length < 70 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">{t("seo_desc_too_short")}</p>
+          )}
+          {description.length >= 120 && description.length < dynamicDescMax && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400">{t("seo_desc_ideal")}</p>
+          )}
+          {description.length >= dynamicDescMax && (
+            <p className="text-xs text-red-500">{t("seo_desc_too_long")}</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
               <FileText className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               {t("content_markdown")}
             </label>
-            <div className="flex items-center gap-2">
-              {!showPreview && (
-                <button
-                  type="button"
-                  onClick={autoFormatMarkdown}
-                  disabled={isAiFormatting}
-                  className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-indigo-100 px-3 py-1.5 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-200 disabled:opacity-50 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {isAiFormatting ? t("ai_formatting") : t("convert_to_markdown")}
-                </button>
-              )}
+            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-center">
               <button
                 type="button"
                 onClick={insertImagePlaceholder}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-blue-100 px-3 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-blue-100 px-3 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 sm:w-auto"
               >
                 <ImagePlus className="h-3.5 w-3.5" />
                 {t("add_image")}
@@ -382,7 +446,7 @@ export default function CreateContentForm({
               <button
                 type="button"
                 onClick={() => setShowPreview(!showPreview)}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-900/50"
+                className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-900/50 sm:w-auto"
               >
                 {showPreview ? <Edit3 className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 {showPreview ? t("edit") : t("preview")}
@@ -441,6 +505,38 @@ export default function CreateContentForm({
           handleImageError={handleImageError}
           handleImageLoad={handleImageLoad}
         />
+
+        <div className="space-y-2 rounded-xl border border-gray-200/60 bg-white/70 p-4 dark:border-gray-700/60 dark:bg-gray-800/60">
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("attachments")}</label>
+          <input
+            type="file"
+            multiple
+            onChange={handleAttachmentFileSelect}
+            className="w-full rounded-lg border border-gray-300/60 bg-white px-3 py-2 text-sm text-gray-700 dark:border-gray-700/60 dark:bg-gray-900 dark:text-gray-200"
+          />
+          {attachments.length > 0 && (
+            <div className="space-y-2">
+              {attachments.map((item, index) => (
+                <div key={`${item.file.name}-${index}`} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-2 dark:border-gray-700 dark:bg-gray-900">
+                  <p className="min-w-0 flex-1 truncate text-xs text-gray-500">{item.file.name}</p>
+                  <input
+                    value={item.label || ""}
+                    onChange={(e) => updateAttachmentLabel(index, e.target.value)}
+                    className="h-8 w-44 rounded-md border border-gray-300 bg-white px-2 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                    placeholder={t("attachment_label_optional")}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(index)}
+                    className="h-8 rounded-md border border-gray-300 px-2 text-xs text-gray-600 hover:border-rose-500 hover:text-rose-600 dark:border-gray-600 dark:text-gray-300 dark:hover:border-rose-500 dark:hover:text-rose-400"
+                  >
+                    {t("delete")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <UsageTips />
 

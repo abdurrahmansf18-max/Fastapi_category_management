@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,16 +11,33 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-// Runs before React hydration — prevents dark mode flash
-const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme:dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()`;
+async function resolveDocumentLang() {
+  const cookieLang = (await cookies()).get("NEXT_LOCALE")?.value;
+  if (cookieLang === "tr" || cookieLang === "en" || cookieLang === "ar") return cookieLang;
+  const accept = (await headers()).get("accept-language") || "";
+  const langs = accept.split(",").map((item) => item.split(";")[0].trim().split("-")[0].toLowerCase());
+  for (const lang of langs) {
+    if (lang === "tr" || lang === "en" || lang === "ar") return lang;
+  }
+  return "en";
+}
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const lang = await resolveDocumentLang();
+  const theme = (await cookies()).get("theme")?.value;
+  const dark = theme === "dark";
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
-      <body>{children}</body>
+    <html
+      lang={lang}
+      dir={lang === "ar" ? "rtl" : "ltr"}
+      translate="no"
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+      className={dark ? "dark" : undefined}
+    >
+      <body>
+        {children}
+      </body>
     </html>
   );
 }

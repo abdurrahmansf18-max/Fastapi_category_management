@@ -9,7 +9,15 @@ const LANGS = [
 
 type LangCode = "tr" | "en" | "ar";
 
-export default function LanguageSwitcher({ current }: { current: LangCode }) {
+export default function LanguageSwitcher({
+  current,
+  label,
+  onDark,
+}: {
+  current: LangCode;
+  label: string;
+  onDark?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -33,11 +41,17 @@ export default function LanguageSwitcher({ current }: { current: LangCode }) {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+        aria-label={label}
+        title={label}
+        className={
+          onDark
+            ? "flex items-center gap-1 rounded-lg border border-white/20 bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:border-white/40 hover:bg-white/20"
+            : "flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+        }
       >
         {cur.label}
         <svg
-          className={`h-3 w-3 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""} ${onDark ? "text-white/60" : "text-gray-400"}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -47,7 +61,7 @@ export default function LanguageSwitcher({ current }: { current: LangCode }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 min-w-[130px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+        <div className="absolute end-0 top-full z-50 mt-1 min-w-[130px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
           {LANGS.map((lang) => (
             <button
               key={lang.code}
@@ -60,7 +74,7 @@ export default function LanguageSwitcher({ current }: { current: LangCode }) {
             >
               {lang.name}
               {lang.code === current && (
-                <svg className="ml-auto h-3.5 w-3.5 shrink-0 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
+                <svg className="ms-auto h-3.5 w-3.5 shrink-0 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
               )}

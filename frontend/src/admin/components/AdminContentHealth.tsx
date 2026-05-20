@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link2Off } from "lucide-react";
-
+import { Link2Off, CheckCircle2 } from "lucide-react";
 import { AdminHealthApi } from "../../shared/api/admin";
 
 export default function AdminContentHealth() {
@@ -10,26 +9,30 @@ export default function AdminContentHealth() {
 
   useEffect(() => {
     AdminHealthApi.brokenLinks()
-      .then((result) => setCount(result.count))
+      .then((r) => setCount(r.count))
       .catch(() => setCount(null));
   }, []);
 
+  const isOk = count === 0;
+
   return (
-    <section className="rounded-md border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-950">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-600 text-white">
-          <Link2Off className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-base font-semibold text-gray-950 dark:text-white">{t("content_health")}</h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            {count === null
-              ? t("loading")
-              : count === 0
-              ? t("no_broken_links")
-              : t("broken_links_found", { count })}
-          </p>
-        </div>
+    <section className="section-card flex items-center gap-4">
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+        isOk
+          ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
+          : "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
+      }`}>
+        {isOk ? <CheckCircle2 className="h-5 w-5" /> : <Link2Off className="h-5 w-5" />}
+      </div>
+      <div>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">{t("content_health")}</h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          {count === null
+            ? t("loading")
+            : count === 0
+            ? t("no_broken_links")
+            : t("broken_links_found", { count })}
+        </p>
       </div>
     </section>
   );

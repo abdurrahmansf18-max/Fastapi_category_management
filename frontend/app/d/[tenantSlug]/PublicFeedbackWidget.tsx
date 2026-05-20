@@ -3,48 +3,23 @@
 import { useState } from "react";
 import { MessageSquare, ThumbsDown, ThumbsUp } from "lucide-react";
 
-const copy = {
-  tr: {
-    title: "Bu sayfa yardımcı oldu mu?",
-    helpful: "Evet",
-    notHelpful: "Hayır",
-    placeholder: "Kısa not ekle",
-    send: "Gönder",
-    thanks: "Geri bildirimin için teşekkürler.",
-  },
-  en: {
-    title: "Was this page helpful?",
-    helpful: "Yes",
-    notHelpful: "No",
-    placeholder: "Add a short note",
-    send: "Send",
-    thanks: "Thanks for the feedback.",
-  },
-  ar: {
-    title: "هل كانت هذه الصفحة مفيدة؟",
-    helpful: "نعم",
-    notHelpful: "لا",
-    placeholder: "أضف ملاحظة قصيرة",
-    send: "إرسال",
-    thanks: "شكراً على ملاحظتك.",
-  },
-};
-
-function currentLanguage(): keyof typeof copy {
-  if (typeof window === "undefined") return "tr";
-  const saved = window.localStorage.getItem("appLanguage");
-  if (saved === "tr" || saved === "en" || saved === "ar") return saved;
-  const lang = window.navigator.language.toLowerCase();
-  if (lang.startsWith("ar")) return "ar";
-  if (lang.startsWith("en")) return "en";
-  return "tr";
-}
-
-export default function PublicFeedbackWidget({ tenantSlug }: { tenantSlug: string }) {
+export default function PublicFeedbackWidget({
+  tenantSlug,
+  labels,
+}: {
+  tenantSlug: string;
+  labels: {
+    title: string;
+    helpful: string;
+    notHelpful: string;
+    placeholder: string;
+    send: string;
+    thanks: string;
+  };
+}) {
   const [rating, setRating] = useState<"helpful" | "not_helpful" | null>(null);
   const [message, setMessage] = useState("");
   const [sent, setSent] = useState(false);
-  const labels = copy[currentLanguage()];
 
   const send = async (nextRating = rating) => {
     if (!nextRating) return;

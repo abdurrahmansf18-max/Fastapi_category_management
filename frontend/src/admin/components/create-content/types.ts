@@ -18,3 +18,9 @@ export interface ImageData {
   width?: number;
   height?: number;
 }
+
+export interface AttachmentData {
+  label?: string;
+  sortOrder: number;
+  file: File;
+}

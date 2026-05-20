@@ -65,16 +65,19 @@ def test_production_validation_requires_billing_and_search(monkeypatch):
     monkeypatch.setattr(config, "PLATFORM_OWNER_EMAIL", "owner@example.com")
     monkeypatch.setattr(config, "PLATFORM_OWNER_PASSWORD_HASH", "hash")
     monkeypatch.setattr(config, "PLATFORM_OWNER_TOTP_SECRET", "BASE32SECRET")
-    monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "")
-    monkeypatch.setattr(config, "STRIPE_WEBHOOK_SECRET", "")
-    monkeypatch.setattr(config, "STRIPE_PRICE_PRO", "")
+    monkeypatch.setattr(config, "IYZICO_API_KEY", "")
+    monkeypatch.setattr(config, "IYZICO_SECRET_KEY", "")
+    monkeypatch.setattr(config, "IYZICO_MERCHANT_ID", "")
+    monkeypatch.setattr(config, "IYZICO_SUBSCRIPTION_PLAN_REF", "")
     monkeypatch.setattr(config, "MEILISEARCH_URL", "")
     monkeypatch.setattr(config, "MEILISEARCH_API_KEY", "")
+    monkeypatch.setattr(config, "SENTRY_DSN", "")
 
     with pytest.raises(RuntimeError) as exc:
         config.validate_production_config()
 
     message = str(exc.value)
-    assert "Stripe secret key" in message
+    assert "Iyzico" in message
     assert "Meilisearch URL" in message
+    assert "SENTRY_DSN" in message
     assert "Restic and Cloudflare R2 backup credentials" in message

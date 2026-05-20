@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import binascii
 import uuid
 import json
 from datetime import datetime, timedelta
@@ -7,7 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 
 from app.core.audit import log_audit_event
@@ -20,6 +23,7 @@ from app.core.csrf import (
     set_platform_auth_cookies,
     validate_platform_csrf,
 )
+from app.core.observability import update_request_context
 from app.core.security import create_access_token, pwd_context
 from app.core.sessions import (
     create_platform_session,
@@ -62,7 +66,7 @@ async def get_current_platform_owner(
     token = request.cookies.get(settings.PLATFORM_SESSION_COOKIE)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Platform login required")
-    validate_platform_csrf(request)
+    await validate_platform_csrf(request)
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except jwt.PyJWTError as exc:
@@ -73,6 +77,7 @@ async def get_current_platform_owner(
         access_token=token,
         csrf_token=request.cookies.get(settings.PLATFORM_CSRF_COOKIE),
     )
+    update_request_context(tenant_slug="platform", user_id=settings.PLATFORM_OWNER_EMAIL)
     payload["session_id"] = str(session["id"])
     return payload
 
@@ -189,6 +194,12 @@ async def update_tenant_status(
     )
     if payload.status == "suspended":
         await revoke_admin_sessions_for_tenant(tenant_id=str(tenant_id))
+        await log_audit_event(
+            action="security.session_revoked",
+            tenant_id=str(tenant_id),
+            request=request,
+            metadata={"reason": "tenant_suspended", "owner": owner["email"]},
+        )
     await log_audit_event(
         action="platform.tenant_status_changed",
         tenant_id=str(tenant_id),
@@ -327,39 +338,124 @@ async def impersonate_tenant_owner(
 
 
 @platform_router.get("/audit")
-async def audit_events(limit: int = 100, _=Depends(get_current_platform_owner)):
-    return await platform_fetch_all(
-        """
+async def audit_events(
+    tenant_id: str | None = Query(default=None),
+    action: str | None = Query(default=None),
+    from_ts: datetime | None = Query(default=None, alias="from"),
+    to_ts: datetime | None = Query(default=None, alias="to"),
+    cursor: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    _=Depends(get_current_platform_owner),
+):
+    conditions = []
+    params: dict[str, object] = {"limit": limit}
+
+    if tenant_id:
+        conditions.append("tenant_id = :tenant_id::uuid")
+        params["tenant_id"] = tenant_id
+    if action:
+        conditions.append("action = :action")
+        params["action"] = action
+    if from_ts is not None:
+        conditions.append("created_at >= :from_ts")
+        params["from_ts"] = from_ts
+    if to_ts is not None:
+        conditions.append("created_at <= :to_ts")
+        params["to_ts"] = to_ts
+    if cursor:
+        try:
+            decoded = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+            cursor_ts, cursor_id = decoded.split("|", 1)
+            params["cursor_created_at"] = datetime.fromisoformat(cursor_ts)
+            params["cursor_id"] = cursor_id
+            conditions.append("(created_at, id) < (:cursor_created_at, :cursor_id::uuid)")
+        except (ValueError, binascii.Error):
+            raise HTTPException(status_code=400, detail="Invalid audit cursor")
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = await platform_fetch_all(
+        f"""
         SELECT id, tenant_id, actor_user_id, action, target_type, target_id, metadata, created_at
         FROM public.audit_event
-        ORDER BY created_at DESC
+        {where_clause}
+        ORDER BY created_at DESC, id DESC
         LIMIT :limit
         """,
-        {"limit": min(max(limit, 1), 500)},
+        params,
     )
+    items = [dict(row) for row in rows]
+    next_cursor = None
+    if items:
+        last = items[-1]
+        marker = f"{last['created_at'].isoformat()}|{last['id']}"
+        next_cursor = base64.urlsafe_b64encode(marker.encode("utf-8")).decode("ascii")
+    return {"items": items, "next_cursor": next_cursor}
 
 
 @platform_router.get("/ops/status")
 async def ops_status(_=Depends(get_current_platform_owner)):
+    def normalize_status(name: str, data: dict) -> dict:
+        ok = bool(data.get("ok"))
+        message = str(data.get("message") or "").strip()
+        checked_at = data.get("checked_at")
+        reason = "ok"
+        if not ok:
+            if "No status file yet" in message:
+                reason = f"{name}_status_missing"
+            elif "failed" in message.lower():
+                reason = f"{name}_failed"
+            else:
+                reason = f"{name}_error"
+        return {
+            "ok": ok,
+            "checked_at": checked_at,
+            "message": message or ("ok" if ok else "unknown error"),
+            "reason": reason,
+        }
+
     def read_status_file(name: str) -> dict:
         path = Path(settings.OPS_STATUS_DIR) / name
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return normalize_status(name.replace(".json", ""), data)
         except Exception:
-            return {"ok": False, "checked_at": None, "message": "No status file yet"}
+            return normalize_status(name.replace(".json", ""), {"ok": False, "checked_at": None, "message": "No status file yet"})
 
     tenants = await platform_fetch_one("SELECT count(*) AS c FROM public.tenant")
     active = await platform_fetch_one("SELECT count(*) AS c FROM public.tenant WHERE status = 'active'")
     billing = await platform_fetch_one("SELECT count(*) AS c FROM public.subscription WHERE status IN ('active', 'trialing')")
+    queue_worker_alive = False
+    queue_message = "not_checked"
+    try:
+        from app.worker import celery_app
+
+        pings = await asyncio.to_thread(lambda: celery_app.control.ping(timeout=0.7))
+        queue_worker_alive = bool(pings)
+        queue_message = "ok" if queue_worker_alive else "no-workers-responding"
+    except Exception as exc:
+        queue_worker_alive = False
+        queue_message = str(exc)
     return {
         "ok": True,
         "tenants": tenants["c"] if tenants else 0,
         "active_tenants": active["c"] if active else 0,
         "active_subscriptions": billing["c"] if billing else 0,
         "search": {"configured": bool(settings.MEILISEARCH_URL)},
-        "stripe": {"configured": bool(settings.STRIPE_SECRET_KEY)},
+        "iyzico": {
+            "configured": bool(
+                settings.IYZICO_API_KEY
+                and settings.IYZICO_SECRET_KEY
+                and settings.IYZICO_MERCHANT_ID
+                and settings.IYZICO_SUBSCRIPTION_PLAN_REF
+            )
+        },
         "redis": {"configured": bool(settings.REDIS_URL)},
-        "queue": {"configured": bool(settings.REDIS_URL), "worker": "celery"},
+        "queue": {
+            "configured": bool(settings.REDIS_URL),
+            "worker": "celery",
+            "worker_alive": queue_worker_alive,
+            "message": queue_message,
+        },
         "backup": {
             "configured": bool(settings.RESTIC_REPOSITORY and settings.RESTIC_PASSWORD),
             "last_backup": read_status_file("backup.json"),
@@ -372,3 +468,38 @@ async def ops_status(_=Depends(get_current_platform_owner)):
             "loki": {"configured": True},
         },
     }
+
+
+class PlatformBrandingIn(BaseModel):
+    site_name: str = Field(min_length=1, max_length=60)
+    site_logo: str = Field(default="", max_length=3_000_000)
+
+
+@platform_router.get("/branding")
+async def get_platform_branding(_=Depends(get_current_platform_owner)):
+    rows = await platform_fetch_all("SELECT key, value FROM public.platform_setting")
+    data = {row["key"]: row["value"] for row in (rows or [])}
+    return {
+        "site_name": data.get("site_name", "DocSpace"),
+        "site_logo": data.get("site_logo", ""),
+    }
+
+
+@platform_router.put("/branding")
+async def update_platform_branding(
+    body: PlatformBrandingIn,
+    request: Request,
+    _=Depends(get_current_platform_owner),
+):
+    for key, val in [("site_name", body.site_name), ("site_logo", body.site_logo)]:
+        await platform_execute(
+            """INSERT INTO public.platform_setting (key, value) VALUES (:key, :val)
+               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
+            {"key": key, "val": val},
+        )
+    await log_audit_event(
+        request=request,
+        action="platform.branding_updated",
+        metadata={"site_name": body.site_name, "has_logo": bool(body.site_logo)},
+    )
+    return {"ok": True}

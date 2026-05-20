@@ -69,7 +69,3 @@ async def enforce_rate_limit(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Rate limit exceeded",
         )
-
-
-def plan_limit_value(plan_code: str, free_value: int, pro_value: int) -> int:
-    return pro_value if plan_code == "pro" else free_value

@@ -6,6 +6,7 @@ export interface Category {
   name: string;
   slug: string;
   description?: string | null;
+  seo_description?: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -19,6 +20,7 @@ export interface Heading {
   title: string;
   slug: string;
   description?: string | null;
+  seo_description?: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -43,6 +45,30 @@ export interface ContentImage {
   sort_order: number;
   width?: number | null;
   height?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContentAttachment {
+  id: UUID;
+  content_id: UUID;
+  url: string;
+  label: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RedirectRule {
+  id: UUID;
+  source_path: string;
+  target_path: string;
+  status_code: 301 | 302 | 307 | 308;
+  is_active: boolean;
+  note?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,7 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
 
-export default function ThemeToggle() {
+export default function ThemeToggle({
+  lightLabel,
+  darkLabel,
+  onDark,
+}: {
+  lightLabel: string;
+  darkLabel: string;
+  onDark?: boolean;
+}) {
   const [dark, setDark] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -13,7 +21,11 @@ export default function ThemeToggle() {
   function toggle() {
     const isDark = document.documentElement.classList.toggle("dark");
     setDark(isDark);
-    try { localStorage.setItem("theme", isDark ? "dark" : "light"); } catch {}
+    try {
+      const next = isDark ? "dark" : "light";
+      localStorage.setItem("theme", next);
+      document.cookie = `theme=${next}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {}
   }
 
   // Render a same-size placeholder before mount to avoid layout shift
@@ -24,8 +36,13 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800"
+      aria-label={dark ? lightLabel : darkLabel}
+      title={dark ? lightLabel : darkLabel}
+      className={
+        onDark
+          ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white transition hover:border-white/40 hover:bg-white/20"
+          : "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800"
+      }
     >
       {dark ? (
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

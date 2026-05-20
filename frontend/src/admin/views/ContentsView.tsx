@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Edit3, FileText, ImageIcon, Trash2 } from "lucide-react";
 import { cx, sectionCard, itemCard, iconButton, paginate } from "../utils/uiHelpers";
 import ContentImageManager from "../components/ContentImageManager";
+import ContentAttachmentManager from "../components/ContentAttachmentManager";
 import CreateContentForm from "../components/CreateContentForm";
 import { ListControls, PaginationControls } from "../components/ListControls";
 import { ContentsApi } from "../../shared/api/admin";
@@ -24,6 +25,7 @@ interface ContentsViewProps {
     headingId: UUID,
     body: string,
     images: any[],
+    attachments: any[],
     description?: string,
     status?: "draft" | "published"
   ) => Promise<void>;
@@ -85,15 +87,27 @@ export default function ContentsView({
                   <ImageIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   {t("image_management")}
                 </div>
-                <div className="p-4 rounded-xl bg-white/50 dark:bg-gray-800/30 border border-blue-200/50 dark:border-blue-800/50">
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                    {t("image_instruction")}
-                  </p>
-                  <ContentImageManager
-                    key={selectedContent.id}
-                    contentId={selectedContent.id}
-                    onNotification={showNotification}
-                  />
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="p-4 rounded-xl bg-white/50 dark:bg-gray-800/30 border border-blue-200/50 dark:border-blue-800/50">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                      {t("image_instruction")}
+                    </p>
+                    <ContentImageManager
+                      key={`img-${selectedContent.id}`}
+                      contentId={selectedContent.id}
+                      onNotification={showNotification}
+                    />
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/50 dark:bg-gray-800/30 border border-blue-200/50 dark:border-blue-800/50">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                      {t("attachment_instruction")}
+                    </p>
+                    <ContentAttachmentManager
+                      key={`att-${selectedContent.id}`}
+                      contentId={selectedContent.id}
+                      onNotification={showNotification}
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -166,7 +180,12 @@ export default function ContentsView({
                         onClick={async () => {
                           const newBody = await showPrompt(t("edit_content"), c.body, t("new_content_colon"));
                           if (newBody !== null) {
-                            ContentsApi.update(c.id, { body: newBody })
+                            const newDescription = await showPrompt(
+                              t("edit_description"),
+                              c.description || "",
+                              t("description_optional")
+                            );
+                            ContentsApi.update(c.id, { body: newBody, description: newDescription ?? c.description ?? null })
                               .then(() => {
                                 if (currentHeadingId)
                                   fetchContentsByHeading(currentHeadingId);

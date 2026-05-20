@@ -9,16 +9,16 @@ from app.db.session import engine, quote_ident
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 FREE_PLAN_LIMITS = {
-    "max_admins": 1,
-    "max_categories": 3,
-    "max_headings": 20,
-    "max_contents": 20,
-    "max_upload_bytes": 20 * 1024 * 1024,
-    "max_seo_pages": 25,
-    "public_rate_limit": 60,
-    "search_rate_limit": 20,
-    "admin_rate_limit": 40,
-    "ai_monthly_limit": 5,
+    "max_admins": 2,
+    "max_categories": 20,
+    "max_headings": 800,
+    "max_contents": 800,
+    "max_upload_bytes": 1 * 1024 * 1024 * 1024,
+    "max_seo_pages": 800,
+    "public_rate_limit": 180,
+    "search_rate_limit": 80,
+    "admin_rate_limit": 120,
+    "ai_monthly_limit": 0,
 }
 
 PRO_PLAN_LIMITS = {
@@ -151,6 +151,7 @@ PLATFORM_DDL = [
       slug text NOT NULL UNIQUE,
       schema_name text NOT NULL UNIQUE,
       plan_code text NOT NULL DEFAULT 'free' REFERENCES public.plan(code),
+      discoverable boolean NOT NULL DEFAULT true,
       status text NOT NULL DEFAULT 'pending_verification'
         CHECK (status IN ('pending_verification', 'active', 'suspended')),
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -158,6 +159,7 @@ PLATFORM_DDL = [
       CONSTRAINT tenant_slug_format_ck CHECK (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$')
     )
     """,
+    "ALTER TABLE public.tenant ADD COLUMN IF NOT EXISTS discoverable boolean NOT NULL DEFAULT true",
     """
     CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_owner_workspace
       ON public.tenant(owner_user_id)
@@ -246,16 +248,47 @@ PLATFORM_DDL = [
     """
     CREATE TABLE IF NOT EXISTS public.payment_customer (
       tenant_id uuid PRIMARY KEY REFERENCES public.tenant(id) ON DELETE CASCADE,
-      stripe_customer_id text NOT NULL UNIQUE,
+      provider text NOT NULL DEFAULT 'iyzico',
+      provider_customer_id text NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (provider, provider_customer_id)
     )
     """,
+    "ALTER TABLE public.payment_customer ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'iyzico'",
+    "ALTER TABLE public.payment_customer ADD COLUMN IF NOT EXISTS provider_customer_id text",
+    """
+    DO $$
+    DECLARE
+      legacy_customer_column text := 'str' || 'ipe_customer_id';
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'payment_customer'
+          AND column_name = legacy_customer_column
+      ) THEN
+        EXECUTE format(
+          'UPDATE public.payment_customer
+           SET provider = %L,
+               provider_customer_id = COALESCE(provider_customer_id, %I)
+           WHERE provider_customer_id IS NULL',
+          'iyzico',
+          legacy_customer_column
+        );
+        EXECUTE format('ALTER TABLE public.payment_customer DROP COLUMN %I', legacy_customer_column);
+      END IF;
+    END $$;
+    """,
+    "UPDATE public.payment_customer SET provider_customer_id = tenant_id::text WHERE provider_customer_id IS NULL",
+    "ALTER TABLE public.payment_customer ALTER COLUMN provider_customer_id SET NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_customer_provider_customer ON public.payment_customer(provider, provider_customer_id)",
     """
     CREATE TABLE IF NOT EXISTS public.subscription (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
-      provider text NOT NULL DEFAULT 'stripe',
+      provider text NOT NULL DEFAULT 'iyzico',
       provider_subscription_id text NOT NULL UNIQUE,
       status text NOT NULL,
       plan_code text NOT NULL REFERENCES public.plan(code),
@@ -265,11 +298,12 @@ PLATFORM_DDL = [
       updated_at timestamptz NOT NULL DEFAULT now()
     )
     """,
+    "ALTER TABLE public.subscription ALTER COLUMN provider SET DEFAULT 'iyzico'",
     "CREATE INDEX IF NOT EXISTS idx_subscription_tenant_status ON public.subscription(tenant_id, status)",
     """
     CREATE TABLE IF NOT EXISTS public.billing_event (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      provider text NOT NULL DEFAULT 'stripe',
+      provider text NOT NULL DEFAULT 'iyzico',
       provider_event_id text NOT NULL UNIQUE,
       event_type text NOT NULL,
       tenant_id uuid REFERENCES public.tenant(id) ON DELETE SET NULL,
@@ -277,6 +311,7 @@ PLATFORM_DDL = [
       processed_at timestamptz NOT NULL DEFAULT now()
     )
     """,
+    "ALTER TABLE public.billing_event ALTER COLUMN provider SET DEFAULT 'iyzico'",
     """
     CREATE TABLE IF NOT EXISTS public.usage_counter (
       tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
@@ -347,6 +382,15 @@ PLATFORM_DDL = [
     BEFORE UPDATE ON public.tenant
     FOR EACH ROW EXECUTE FUNCTION public.set_platform_updated_at()
     """,
+    """
+    CREATE TABLE IF NOT EXISTS public.platform_setting (
+      key citext PRIMARY KEY,
+      value text NOT NULL DEFAULT '',
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "INSERT INTO public.platform_setting (key, value) VALUES ('site_name', 'DocSpace') ON CONFLICT DO NOTHING",
+    "INSERT INTO public.platform_setting (key, value) VALUES ('site_logo', '') ON CONFLICT DO NOTHING",
 ]
 
 
@@ -356,6 +400,7 @@ TENANT_DDL = [
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       name citext NOT NULL UNIQUE,
       description text,
+      seo_description text,
       slug text NOT NULL,
       sort_order int NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -372,6 +417,7 @@ TENANT_DDL = [
       level smallint NOT NULL CHECK (level IN (1,2)),
       title citext NOT NULL,
       description text,
+      seo_description text,
       slug text NOT NULL,
       sort_order int NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -397,8 +443,26 @@ TENANT_DDL = [
     """,
     "ALTER TABLE content ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'published'",
     "ALTER TABLE content ADD COLUMN IF NOT EXISTS published_at timestamptz DEFAULT now()",
+    "ALTER TABLE category ADD COLUMN IF NOT EXISTS seo_description text",
+    "ALTER TABLE heading ADD COLUMN IF NOT EXISTS seo_description text",
     "ALTER TABLE content DROP CONSTRAINT IF EXISTS content_status_ck",
     "ALTER TABLE content ADD CONSTRAINT content_status_ck CHECK (status IN ('draft', 'published'))",
+    "ALTER TABLE category DROP CONSTRAINT IF EXISTS category_name_len_ck",
+    "ALTER TABLE category ADD CONSTRAINT category_name_len_ck CHECK (char_length(name::text) <= 60)",
+    "ALTER TABLE category DROP CONSTRAINT IF EXISTS category_desc_len_ck",
+    "ALTER TABLE category ADD CONSTRAINT category_desc_len_ck CHECK (description IS NULL OR char_length(description) <= 200)",
+    "ALTER TABLE category DROP CONSTRAINT IF EXISTS category_seo_desc_len_ck",
+    "ALTER TABLE category ADD CONSTRAINT category_seo_desc_len_ck CHECK (seo_description IS NULL OR char_length(seo_description) <= 320)",
+    "ALTER TABLE heading DROP CONSTRAINT IF EXISTS heading_title_len_ck",
+    "ALTER TABLE heading ADD CONSTRAINT heading_title_len_ck CHECK (char_length(title::text) <= 80)",
+    "ALTER TABLE heading DROP CONSTRAINT IF EXISTS heading_desc_len_ck",
+    "ALTER TABLE heading ADD CONSTRAINT heading_desc_len_ck CHECK (description IS NULL OR char_length(description) <= 200)",
+    "ALTER TABLE heading DROP CONSTRAINT IF EXISTS heading_seo_desc_len_ck",
+    "ALTER TABLE heading ADD CONSTRAINT heading_seo_desc_len_ck CHECK (seo_description IS NULL OR char_length(seo_description) <= 320)",
+    "ALTER TABLE content DROP CONSTRAINT IF EXISTS content_body_min_len_ck",
+    "ALTER TABLE content ADD CONSTRAINT content_body_min_len_ck CHECK (char_length(btrim(body)) >= 120)",
+    "ALTER TABLE content DROP CONSTRAINT IF EXISTS content_desc_dynamic_len_ck",
+    "ALTER TABLE content ADD CONSTRAINT content_desc_dynamic_len_ck CHECK (description IS NULL OR char_length(description) <= LEAST(320, GREATEST(80, floor((char_length(body)::numeric) * 0.20)::int)))",
     """
     CREATE TABLE IF NOT EXISTS content_image (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -413,6 +477,45 @@ TENANT_DDL = [
       CONSTRAINT content_image_url_ck CHECK (btrim(url) <> '' AND url ~ '^(https?://|/|s3://)')
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS content_attachment (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      content_id uuid NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+      label text NOT NULL DEFAULT '',
+      file_name text NOT NULL DEFAULT 'attachment',
+      mime_type text NOT NULL DEFAULT 'application/octet-stream',
+      size_bytes bigint NOT NULL DEFAULT 0,
+      url text NOT NULL,
+      sort_order int NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT content_attachment_url_ck CHECK (btrim(url) <> '' AND url ~ '^(https?://|/|s3://)')
+    )
+    """,
+    "ALTER TABLE content_attachment DROP CONSTRAINT IF EXISTS content_attachment_label_len_ck",
+    "ALTER TABLE content_attachment ADD CONSTRAINT content_attachment_label_len_ck CHECK (char_length(label) <= 120)",
+    "ALTER TABLE content_attachment DROP CONSTRAINT IF EXISTS content_attachment_name_len_ck",
+    "ALTER TABLE content_attachment ADD CONSTRAINT content_attachment_name_len_ck CHECK (char_length(file_name) <= 255)",
+    "ALTER TABLE content_attachment DROP CONSTRAINT IF EXISTS content_attachment_mime_len_ck",
+    "ALTER TABLE content_attachment ADD CONSTRAINT content_attachment_mime_len_ck CHECK (char_length(mime_type) <= 120)",
+    "ALTER TABLE content_attachment DROP CONSTRAINT IF EXISTS content_attachment_size_nonneg_ck",
+    "ALTER TABLE content_attachment ADD CONSTRAINT content_attachment_size_nonneg_ck CHECK (size_bytes >= 0)",
+    """
+    CREATE TABLE IF NOT EXISTS redirect_rule (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      source_path text NOT NULL UNIQUE,
+      target_path text NOT NULL,
+      status_code smallint NOT NULL DEFAULT 301 CHECK (status_code IN (301,302,307,308)),
+      is_active boolean NOT NULL DEFAULT true,
+      note text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT redirect_source_path_ck CHECK (source_path ~ '^/'),
+      CONSTRAINT redirect_target_path_ck CHECK (target_path ~ '^/')
+    )
+    """,
+    "ALTER TABLE redirect_rule DROP CONSTRAINT IF EXISTS redirect_note_len_ck",
+    "ALTER TABLE redirect_rule ADD CONSTRAINT redirect_note_len_ck CHECK (note IS NULL OR char_length(note) <= 300)",
     """
     CREATE TABLE IF NOT EXISTS site_setting (
       key citext PRIMARY KEY,
@@ -560,13 +663,13 @@ TENANT_DDL = [
       (
         SELECT 'category'::text, c.id, c.name::text, c.description, similarity(c.name::text, q) AS score
         FROM category c
-        WHERE c.name ILIKE '%'||q||'%' OR c.description ILIKE '%'||q||'%'
+        WHERE c.name ILIKE '%'||q||'%' OR c.description ILIKE '%'||q||'%' OR c.seo_description ILIKE '%'||q||'%'
       )
       UNION ALL
       (
         SELECT 'heading', h.id, h.title::text, h.description, similarity(h.title::text, q) AS score
         FROM heading h
-        WHERE h.title ILIKE '%'||q||'%' OR h.description ILIKE '%'||q||'%'
+        WHERE h.title ILIKE '%'||q||'%' OR h.description ILIKE '%'||q||'%' OR h.seo_description ILIKE '%'||q||'%'
       )
       UNION ALL
       (
@@ -586,6 +689,10 @@ TENANT_DDL = [
     "CREATE TRIGGER trg_content_updated BEFORE UPDATE ON content FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
     "DROP TRIGGER IF EXISTS trg_content_image_updated ON content_image",
     "CREATE TRIGGER trg_content_image_updated BEFORE UPDATE ON content_image FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+    "DROP TRIGGER IF EXISTS trg_content_attachment_updated ON content_attachment",
+    "CREATE TRIGGER trg_content_attachment_updated BEFORE UPDATE ON content_attachment FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+    "DROP TRIGGER IF EXISTS trg_redirect_rule_updated ON redirect_rule",
+    "CREATE TRIGGER trg_redirect_rule_updated BEFORE UPDATE ON redirect_rule FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
     "DROP TRIGGER IF EXISTS trg_set_category_slug ON category",
     "CREATE TRIGGER trg_set_category_slug BEFORE INSERT OR UPDATE OF name, slug ON category FOR EACH ROW EXECUTE FUNCTION set_category_slug()",
     "DROP TRIGGER IF EXISTS trg_set_heading_slug ON heading",
@@ -607,13 +714,16 @@ TENANT_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_heading_l2_sort ON heading(parent_heading_id, sort_order, id) WHERE level = 2",
     "CREATE INDEX IF NOT EXISTS idx_category_name_trgm ON category USING gin ((name::text) gin_trgm_ops)",
     "CREATE INDEX IF NOT EXISTS idx_category_desc_trgm ON category USING gin (description gin_trgm_ops)",
+    "CREATE INDEX IF NOT EXISTS idx_category_seo_desc_trgm ON category USING gin (seo_description gin_trgm_ops)",
     "CREATE INDEX IF NOT EXISTS idx_heading_title_trgm ON heading USING gin ((title::text) gin_trgm_ops)",
     "CREATE INDEX IF NOT EXISTS idx_heading_desc_trgm ON heading USING gin (description gin_trgm_ops)",
+    "CREATE INDEX IF NOT EXISTS idx_heading_seo_desc_trgm ON heading USING gin (seo_description gin_trgm_ops)",
     "CREATE INDEX IF NOT EXISTS idx_content_body_trgm ON content USING gin (body gin_trgm_ops)",
     "CREATE INDEX IF NOT EXISTS idx_content_desc_trgm ON content USING gin (description gin_trgm_ops)",
     "CREATE INDEX IF NOT EXISTS idx_content_image_order ON content_image(content_id, sort_order, id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_content_image_sort ON content_image(content_id, sort_order)",
-    "INSERT INTO site_setting (key, value) VALUES ('site_title', 'Fastapi') ON CONFLICT DO NOTHING",
+    "CREATE INDEX IF NOT EXISTS idx_content_attachment_order ON content_attachment(content_id, sort_order, id)",
+    "CREATE INDEX IF NOT EXISTS idx_redirect_rule_active_source ON redirect_rule(is_active, source_path)",
     "INSERT INTO site_setting (key, value) VALUES ('site_logo', '') ON CONFLICT DO NOTHING",
 ]
 
@@ -632,21 +742,64 @@ async def run_platform_migrations() -> None:
             await conn.execute(text(stmt), params)
 
 
-async def provision_tenant_schema(schema_name: str) -> None:
+async def provision_tenant_schema(schema_name: str, site_title: str | None = None) -> None:
     async with engine.begin() as conn:
         await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(schema_name)}"))
         await conn.execute(text(f"SET LOCAL search_path TO {quote_ident(schema_name)}, public"))
         for stmt in TENANT_DDL:
             await conn.execute(text(stmt))
+        if site_title:
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO site_setting (key, value)
+                    VALUES ('site_title', :site_title)
+                    ON CONFLICT (key) DO NOTHING
+                    """
+                ),
+                {"site_title": site_title},
+            )
+            await conn.execute(
+                text(
+                    """
+                    UPDATE site_setting
+                    SET value = :site_title
+                    WHERE key = 'site_title'
+                      AND (btrim(value) = '' OR value = 'Fastapi')
+                    """
+                ),
+                {"site_title": site_title},
+            )
 
 
 async def run_tenant_migrations() -> None:
     async with engine.begin() as conn:
-        result = await conn.execute(text("SELECT schema_name FROM public.tenant"))
-        schemas = [row[0] for row in result.fetchall()]
+        result = await conn.execute(text("SELECT schema_name, name FROM public.tenant"))
+        tenants = [(row[0], row[1]) for row in result.fetchall()]
 
-    for schema_name in schemas:
+    for schema_name, tenant_name in tenants:
         async with engine.begin() as conn:
             await conn.execute(text(f"SET LOCAL search_path TO {quote_ident(schema_name)}, public"))
             for stmt in TENANT_DDL:
                 await conn.execute(text(stmt))
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO site_setting (key, value)
+                    VALUES ('site_title', :site_title)
+                    ON CONFLICT (key) DO NOTHING
+                    """
+                ),
+                {"site_title": tenant_name},
+            )
+            await conn.execute(
+                text(
+                    """
+                    UPDATE site_setting
+                    SET value = :site_title
+                    WHERE key = 'site_title'
+                      AND (btrim(value) = '' OR value = 'Fastapi')
+                    """
+                ),
+                {"site_title": tenant_name},
+            )

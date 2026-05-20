@@ -61,6 +61,10 @@ STATIC_BASE_URL = os.getenv("STATIC_BASE_URL", "http://localhost:8000/static")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))  # 5MB
 # DİKKAT: string kalsın; storage.py split(",") ile parse ediyor
 ALLOWED_MIME = os.getenv("ALLOWED_MIME", "image/jpeg,image/png,image/webp,image/gif")
+ALLOWED_ATTACHMENT_MIME = os.getenv(
+    "ALLOWED_ATTACHMENT_MIME",
+    "application/pdf,text/plain,application/zip,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp,image/gif",
+)
 
 # --- Mutlak path (Windows/göreli yol şaşmalarını önler) ---
 # .../backend/app/core/config.py -> ../../ = backend kökü
@@ -94,16 +98,20 @@ PLATFORM_CSRF_COOKIE = os.getenv("PLATFORM_CSRF_COOKIE", "platform_csrf")
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 MEILISEARCH_URL = os.getenv("MEILISEARCH_URL", "")
 MEILISEARCH_API_KEY = os.getenv("MEILISEARCH_API_KEY", "")
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "")
-STRIPE_CUSTOMER_PORTAL_RETURN_URL = os.getenv(
-    "STRIPE_CUSTOMER_PORTAL_RETURN_URL",
-    f"{APP_PUBLIC_BASE_URL.rstrip('/')}/platform/admin",
-)
+BILLING_ENABLED = os.getenv("BILLING_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+IYZICO_API_KEY = os.getenv("IYZICO_API_KEY", "")
+IYZICO_SECRET_KEY = os.getenv("IYZICO_SECRET_KEY", "")
+IYZICO_MERCHANT_ID = os.getenv("IYZICO_MERCHANT_ID", "")
+IYZICO_BASE_URL = os.getenv("IYZICO_BASE_URL", "https://api.iyzipay.com")
+IYZICO_SUBSCRIPTION_PLAN_REF = os.getenv("IYZICO_SUBSCRIPTION_PLAN_REF", "")
+IYZICO_CALLBACK_BASE_URL = os.getenv("IYZICO_CALLBACK_BASE_URL", APP_PUBLIC_BASE_URL)
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", ENVIRONMENT)
+SENTRY_RELEASE = os.getenv("SENTRY_RELEASE", "")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 PUBLIC_CACHE_ETAG_MAX_BYTES = int(os.getenv("PUBLIC_CACHE_ETAG_MAX_BYTES", str(256 * 1024)))
 OPS_STATUS_DIR = os.getenv("OPS_STATUS_DIR", "/ops-status")
+AUDIT_RETENTION_DAYS = int(os.getenv("AUDIT_RETENTION_DAYS", "180"))
 RESTIC_REPOSITORY = os.getenv("RESTIC_REPOSITORY", "")
 RESTIC_PASSWORD = os.getenv("RESTIC_PASSWORD", "")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
@@ -115,15 +123,9 @@ PLATFORM_OWNER_PASSWORD_HASH = os.getenv("PLATFORM_OWNER_PASSWORD_HASH", "")
 PLATFORM_OWNER_TOTP_SECRET = os.getenv("PLATFORM_OWNER_TOTP_SECRET", "")
 PLATFORM_OWNER_BOOTSTRAP_TOKEN = os.getenv("PLATFORM_OWNER_BOOTSTRAP_TOKEN", "")
 
-# Rate limits are per IP/tenant window unless plan-specific limits override them.
+# Rate limits — per IP/tenant per window.
 RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("RATE_LIMIT_WINDOW_SECONDS", "60"))
-AUTH_RATE_LIMIT = int(os.getenv("AUTH_RATE_LIMIT", "10"))
-PUBLIC_RATE_LIMIT_FREE = int(os.getenv("PUBLIC_RATE_LIMIT_FREE", "120"))
-PUBLIC_RATE_LIMIT_PRO = int(os.getenv("PUBLIC_RATE_LIMIT_PRO", "600"))
-SEARCH_RATE_LIMIT_FREE = int(os.getenv("SEARCH_RATE_LIMIT_FREE", "60"))
-SEARCH_RATE_LIMIT_PRO = int(os.getenv("SEARCH_RATE_LIMIT_PRO", "300"))
-ADMIN_RATE_LIMIT_FREE = int(os.getenv("ADMIN_RATE_LIMIT_FREE", "120"))
-ADMIN_RATE_LIMIT_PRO = int(os.getenv("ADMIN_RATE_LIMIT_PRO", "600"))
+AUTH_RATE_LIMIT = int(os.getenv("AUTH_RATE_LIMIT", "20"))
 
 
 def validate_production_config() -> None:
@@ -140,10 +142,21 @@ def validate_production_config() -> None:
         problems.append("CORS_ORIGINS must not include localhost in production")
     if not COOKIE_SECURE:
         problems.append("COOKIE_SECURE must be true in production")
-    if not STRIPE_SECRET_KEY or not STRIPE_WEBHOOK_SECRET or not STRIPE_PRICE_PRO:
-        problems.append("Stripe secret key, webhook secret, and Pro price must be configured in production")
     if not MEILISEARCH_URL or not MEILISEARCH_API_KEY:
         problems.append("Meilisearch URL and API key must be configured in production")
+    if BILLING_ENABLED and (
+        not IYZICO_API_KEY
+        or not IYZICO_SECRET_KEY
+        or not IYZICO_MERCHANT_ID
+        or not IYZICO_SUBSCRIPTION_PLAN_REF
+    ):
+        problems.append("Iyzico credentials and subscription plan ref must be configured when BILLING_ENABLED=true")
+    if not SENTRY_DSN:
+        problems.append("SENTRY_DSN must be configured in production")
+    if not LOG_LEVEL:
+        problems.append("LOG_LEVEL must be configured")
+    if AUDIT_RETENTION_DAYS < 30:
+        problems.append("AUDIT_RETENTION_DAYS must be at least 30")
     if not RESTIC_REPOSITORY or not RESTIC_PASSWORD or not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
         problems.append("Restic and Cloudflare R2 backup credentials must be configured in production")
     if not PLATFORM_OWNER_EMAIL or not PLATFORM_OWNER_PASSWORD_HASH or not PLATFORM_OWNER_TOTP_SECRET:
@@ -155,6 +168,7 @@ def validate_production_config() -> None:
 settings = SimpleNamespace(
     ENVIRONMENT=ENVIRONMENT,
     IS_PRODUCTION=IS_PRODUCTION,
+    DATABASE_URL=DATABASE_URL,
     ACCESS_TOKEN_EXPIRE_MINUTES=ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS=REFRESH_TOKEN_EXPIRE_DAYS,
     UPLOADS_DIR=UPLOADS_DIR,
@@ -162,6 +176,7 @@ settings = SimpleNamespace(
     STATIC_BASE_URL=STATIC_BASE_URL,
     MAX_UPLOAD_BYTES=MAX_UPLOAD_BYTES,
     ALLOWED_MIME=ALLOWED_MIME,
+    ALLOWED_ATTACHMENT_MIME=ALLOWED_ATTACHMENT_MIME,
     ABS_UPLOADS_DIR=ABS_UPLOADS_DIR,
     APP_PUBLIC_BASE_URL=APP_PUBLIC_BASE_URL,
     SMTP_HOST=SMTP_HOST,
@@ -184,13 +199,20 @@ settings = SimpleNamespace(
     REDIS_URL=REDIS_URL,
     MEILISEARCH_URL=MEILISEARCH_URL,
     MEILISEARCH_API_KEY=MEILISEARCH_API_KEY,
-    STRIPE_SECRET_KEY=STRIPE_SECRET_KEY,
-    STRIPE_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET,
-    STRIPE_PRICE_PRO=STRIPE_PRICE_PRO,
-    STRIPE_CUSTOMER_PORTAL_RETURN_URL=STRIPE_CUSTOMER_PORTAL_RETURN_URL,
+    BILLING_ENABLED=BILLING_ENABLED,
+    IYZICO_API_KEY=IYZICO_API_KEY,
+    IYZICO_SECRET_KEY=IYZICO_SECRET_KEY,
+    IYZICO_MERCHANT_ID=IYZICO_MERCHANT_ID,
+    IYZICO_BASE_URL=IYZICO_BASE_URL,
+    IYZICO_SUBSCRIPTION_PLAN_REF=IYZICO_SUBSCRIPTION_PLAN_REF,
+    IYZICO_CALLBACK_BASE_URL=IYZICO_CALLBACK_BASE_URL,
     SENTRY_DSN=SENTRY_DSN,
+    SENTRY_ENVIRONMENT=SENTRY_ENVIRONMENT,
+    SENTRY_RELEASE=SENTRY_RELEASE,
+    LOG_LEVEL=LOG_LEVEL,
     PUBLIC_CACHE_ETAG_MAX_BYTES=PUBLIC_CACHE_ETAG_MAX_BYTES,
     OPS_STATUS_DIR=OPS_STATUS_DIR,
+    AUDIT_RETENTION_DAYS=AUDIT_RETENTION_DAYS,
     RESTIC_REPOSITORY=RESTIC_REPOSITORY,
     RESTIC_PASSWORD=RESTIC_PASSWORD,
     AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID,
@@ -201,10 +223,4 @@ settings = SimpleNamespace(
     PLATFORM_OWNER_BOOTSTRAP_TOKEN=PLATFORM_OWNER_BOOTSTRAP_TOKEN,
     RATE_LIMIT_WINDOW_SECONDS=RATE_LIMIT_WINDOW_SECONDS,
     AUTH_RATE_LIMIT=AUTH_RATE_LIMIT,
-    PUBLIC_RATE_LIMIT_FREE=PUBLIC_RATE_LIMIT_FREE,
-    PUBLIC_RATE_LIMIT_PRO=PUBLIC_RATE_LIMIT_PRO,
-    SEARCH_RATE_LIMIT_FREE=SEARCH_RATE_LIMIT_FREE,
-    SEARCH_RATE_LIMIT_PRO=SEARCH_RATE_LIMIT_PRO,
-    ADMIN_RATE_LIMIT_FREE=ADMIN_RATE_LIMIT_FREE,
-    ADMIN_RATE_LIMIT_PRO=ADMIN_RATE_LIMIT_PRO,
 )

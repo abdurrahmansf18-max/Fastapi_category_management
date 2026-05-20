@@ -46,14 +46,14 @@ export default function AdminUsersView({
           <div className="grid gap-4">
             {admins.map((a) => (
               <div key={a.id} className={itemCard}>
-                <div className="flex items-center justify-between gap-4">
-                  <div className="font-bold text-left flex-1 truncate text-lg text-gray-800 dark:text-gray-200">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="w-full break-all text-left text-base font-bold text-gray-800 dark:text-gray-200 sm:text-lg">
                     {a.email}
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
                     <button
-                      className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-emerald-600/80 hover:bg-emerald-50 dark:hover:bg-emerald-900/40 hover:scale-105 transition-all duration-200"
+                      className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-300/60 transition-all duration-200 hover:scale-105 hover:border-emerald-600/80 hover:bg-emerald-50 dark:border-gray-600/60 dark:hover:bg-emerald-900/40"
                       onClick={() => changeAdminPassword(a.id)}
                       title={t("change_password")}
                     >
@@ -61,7 +61,7 @@ export default function AdminUsersView({
                     </button>
 
                     <button
-                      className="p-3 rounded-xl border border-gray-300/60 dark:border-gray-600/60 hover:border-rose-400/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 hover:scale-105 transition-all duration-200"
+                      className="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-300/60 transition-all duration-200 hover:scale-105 hover:border-rose-400/60 hover:bg-rose-50 dark:border-gray-600/60 dark:hover:bg-rose-950/20"
                       onClick={() => deleteAdmin(a.id)}
                       title={t('delete')}
                     >

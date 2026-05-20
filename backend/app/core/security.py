@@ -6,8 +6,10 @@ from typing import Optional, Dict, Any
 from fastapi import HTTPException, Path, Request, status
 from passlib.context import CryptContext
 
+from app.core.audit import log_audit_event
 from app.core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_DELTA
 from app.core.csrf import admin_csrf_cookie_name, admin_session_cookie_name, validate_admin_csrf
+from app.core.observability import update_request_context
 from app.core.sessions import validate_admin_session
 from app.db.session import platform_fetch_one
 
@@ -35,7 +37,7 @@ async def get_current_admin(
     if not token:
         raise cred_exc
 
-    validate_admin_csrf(request, tenant_slug)
+    await validate_admin_csrf(request, tenant_slug)
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -45,6 +47,14 @@ async def get_current_admin(
         if uid is None or token_type not in {None, "admin_access"}:
             raise cred_exc
         if token_tenant_slug != tenant_slug:
+            await log_audit_event(
+                action="security.tenant_mismatch",
+                request=request,
+                metadata={
+                    "token_tenant_slug": token_tenant_slug,
+                    "request_tenant_slug": tenant_slug,
+                },
+            )
             raise tenant_exc
     except jwt.PyJWTError:
         raise cred_exc
@@ -76,6 +86,7 @@ async def get_current_admin(
         access_token=token,
         csrf_token=request.cookies.get(admin_csrf_cookie_name(tenant_slug)),
     )
+    update_request_context(tenant_slug=row["tenant_slug"], user_id=str(row["id"]))
     return {
         "id": str(row["id"]),
         "email": row["email"],

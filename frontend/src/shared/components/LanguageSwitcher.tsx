@@ -1,13 +1,16 @@
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from "react-i18next";
 
-export default function LanguageSwitcher() {
-  const { i18n, t } = useTranslation();
+export default function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
+  const { i18n } = useTranslation();
 
   const changeLanguage = (lng: string) => {
+    if (typeof document !== "undefined") {
+      document.cookie = `NEXT_LOCALE=${lng}; path=/; max-age=31536000; SameSite=Lax`;
+    }
     i18n.changeLanguage(lng);
   };
 
-  const currentLang = i18n.language?.split('-')[0] || "tr";
+  const currentLang = i18n.language?.split('-')[0] || "en";
 
   return (
     <div className="relative group inline-flex items-center">
@@ -20,12 +23,14 @@ export default function LanguageSwitcher() {
       <select 
         value={currentLang}
         onChange={(e) => changeLanguage(e.target.value)}
-        className="appearance-none pl-10 pr-8 py-2 text-sm font-medium bg-white/50 hover:bg-white/80 dark:bg-gray-800/50 dark:hover:bg-gray-800/80 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-sm cursor-pointer min-w-[120px]"
+        className={`appearance-none pl-10 pr-8 py-2 text-sm font-medium bg-white/50 hover:bg-white/80 dark:bg-gray-800/50 dark:hover:bg-gray-800/80 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-sm cursor-pointer ${
+          compact ? "w-[84px] sm:w-[120px]" : "w-[120px]"
+        }`}
         dir="ltr"
       >
-        <option value="tr">{t('tr')} (Türkçe)</option>
-        <option value="en">{t('en')} (English)</option>
-        <option value="ar">{t('ar')} (العربية)</option>
+        <option value="tr">{compact ? "TR" : "Türkçe (TR)"}</option>
+        <option value="en">{compact ? "EN" : "English (EN)"}</option>
+        <option value="ar">{compact ? "AR" : "العربية (AR)"}</option>
       </select>
       <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-gray-500 dark:text-gray-400">

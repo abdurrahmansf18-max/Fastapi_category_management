@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
-import { apiGet, siteUrl, tenantSettings } from "../../../../../lib/api";
+import { apiGet, siteUrl, tenantSettings, toPublicUrl } from "../../../../../lib/api";
 import { publicCopy, resolvePublicLang } from "../../../../../lib/server-i18n";
 import CopyPageLinkButton from "../../../CopyPageLinkButton";
 import PublicFeedbackWidget from "../../../PublicFeedbackWidget";
@@ -11,6 +13,8 @@ import AdminFloatingButton from "../../../AdminFloatingButton";
 import PublicHeader from "../../../PublicHeader";
 import DocSidebar from "../../../DocSidebar";
 import BackToTop from "../../../BackToTop";
+import MarkdownPre from "../../../MarkdownPre";
+import CategorySidebar from "../../../CategorySidebar";
 
 export const revalidate = 60;
 
@@ -24,12 +28,27 @@ type PageData = {
 };
 
 type Heading = { id: string; title: string; slug: string; level: number; sort_order: number };
+type ContentAttachment = {
+  id: string;
+  content_id: string;
+  url: string;
+  label: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  sort_order: number;
+};
 
 type RouteParams = {
   tenantSlug: string;
   categorySlug: string;
   h1Slug: string;
   h2Slug: string;
+};
+
+type DocsIndexCategory = {
+  id: string; name: string; slug: string;
+  headings: { id: string; title: string; slug: string; children: { id: string; title: string; slug: string }[] }[];
 };
 
 function slugify(text: string): string {
@@ -59,11 +78,38 @@ function nodeText(node: unknown): string {
   return "";
 }
 
+function linkedHeading(level: 1 | 2 | 3 | 4, children: ReactNode, label: string) {
+  const id = slugify(nodeText(children));
+  const anchor = (
+    <a
+      href={`#${id}`}
+      className="me-2 text-emerald-500 no-underline opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+      aria-label={label}
+    >
+      #
+    </a>
+  );
+  const content = <>{anchor}{children}</>;
+  if (level === 1) return <h1 id={id} className="group">{content}</h1>;
+  if (level === 2) return <h2 id={id} className="group">{content}</h2>;
+  if (level === 3) return <h3 id={id} className="group">{content}</h3>;
+  return <h4 id={id} className="group">{content}</h4>;
+}
+
 async function loadPage(params: RouteParams) {
   return apiGet<PageData>(
     `/t/${params.tenantSlug}/page/${params.categorySlug}/${params.h1Slug}/${params.h2Slug}`,
     60
   );
+}
+
+async function loadPageAttachments(params: RouteParams) {
+  const items =
+    (await apiGet<ContentAttachment[]>(
+      `/t/${params.tenantSlug}/page/${params.categorySlug}/${params.h1Slug}/${params.h2Slug}/attachments`,
+      60
+    )) || [];
+  return items.map((item) => ({ ...item, url: toPublicUrl(item.url) || item.url }));
 }
 
 async function loadSiblings(params: RouteParams) {
@@ -110,38 +156,32 @@ export async function generateMetadata({
 
 export default async function PublicDocPage({ params }: { params: Promise<RouteParams> }) {
   const resolved = await params;
-  const [page, siblings, settings, lang] = await Promise.all([
+  const [page, siblings, settings, lang, docsIndex, attachments] = await Promise.all([
     loadPage(resolved),
     loadSiblings(resolved),
     tenantSettings(resolved.tenantSlug),
     resolvePublicLang(),
+    apiGet<DocsIndexCategory[]>(`/t/${resolved.tenantSlug}/docs-index`, 60),
+    loadPageAttachments(resolved),
   ]);
   const labels = publicCopy[lang];
   const dir = lang === "ar" ? "rtl" : "ltr";
 
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   if (!page) {
-    return (
-      <main dir={dir} className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-950">
-        <PublicHeader tenantSlug={resolved.tenantSlug} settings={settings} lang={lang} currentCategorySlug={resolved.categorySlug} />
-        <div className="flex flex-1 items-center justify-center p-8">
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 dark:bg-gray-800">
-              <svg className="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <p className="font-semibold text-gray-700 dark:text-gray-300">{labels.notFoundPage}</p>
-            <Link href={`/d/${resolved.tenantSlug}`} className="mt-3 inline-block text-sm text-emerald-600 hover:underline dark:text-emerald-400">
-              ← {labels.backToDocs}
-            </Link>
-          </div>
-        </div>
-      </main>
-    );
+    notFound();
   }
 
   const toc = extractToc(page.body);
   const siteTitle = settings.site_title || resolved.tenantSlug;
+
+  const categoryEntry = docsIndex?.find((c) => c.slug === resolved.categorySlug);
+  const sidebarHeadings = categoryEntry?.headings || [];
 
   // Prev / Next from siblings
   const currentIdx = siblings.findIndex((s) => s.slug === resolved.h2Slug);
@@ -153,14 +193,28 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: siteTitle, item: siteUrl(`/d/${resolved.tenantSlug}`) },
-      { "@type": "ListItem", position: 2, name: page.h1 },
-      { "@type": "ListItem", position: 3, name: page.title },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: page.h1,
+        item: siteUrl(`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}`),
+      },
+      { "@type": "ListItem", position: 3, name: page.title, item: siteUrl(`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${resolved.h2Slug}`) },
     ],
+  };
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    headline: page.title,
+    description: page.description || `${page.title} ${labels.documentation}`,
+    mainEntityOfPage: siteUrl(`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${resolved.h2Slug}`),
+    isPartOf: { "@type": "WebSite", name: siteTitle, url: siteUrl(`/d/${resolved.tenantSlug}`) },
   };
 
   return (
-    <main dir={dir} className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-50">
+    <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }} />
 
       <PublicHeader
         tenantSlug={resolved.tenantSlug}
@@ -169,107 +223,173 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
         currentCategorySlug={resolved.categorySlug}
       />
 
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-10">
-        {/* Breadcrumb */}
-        <nav className="mb-5 flex flex-wrap items-center gap-1.5 text-sm text-gray-400">
-          <Link href={`/d/${resolved.tenantSlug}`} className="hover:text-emerald-600 dark:hover:text-emerald-400">
-            {siteTitle}
-          </Link>
-          <span>/</span>
-          <Link
-            href={`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}`}
-            className="hover:text-emerald-600 dark:hover:text-emerald-400"
-          >
-            {page.h1}
-          </Link>
-          <span>/</span>
-          <span className="font-medium text-gray-700 dark:text-gray-200">{page.title}</span>
-        </nav>
+      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        <div className="flex gap-6 lg:gap-8 xl:gap-10">
+          {/* Left sidebar — category headings tree */}
+          {sidebarHeadings.length > 0 && (
+            <CategorySidebar
+              tenantSlug={resolved.tenantSlug}
+              categorySlug={resolved.categorySlug}
+              headings={sidebarHeadings}
+              currentH1Slug={resolved.h1Slug}
+              currentH2Slug={resolved.h2Slug}
+            />
+          )}
 
-        <div className="lg:flex lg:gap-8 xl:gap-10">
-          {/* Article */}
-          <div className="min-w-0 flex-1">
-            <article className="rounded-2xl border border-gray-200 bg-white px-6 py-8 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:px-8 sm:py-10">
-              {/* Title row */}
-              <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-                <h1 className="text-2xl font-bold leading-snug text-gray-900 dark:text-white sm:text-3xl">
-                  {page.title}
-                </h1>
-                <CopyPageLinkButton />
-              </div>
-
-              {/* Markdown body */}
-              <div className="prose prose-gray max-w-none dark:prose-invert prose-headings:scroll-mt-28 prose-headings:font-semibold prose-a:text-emerald-600 prose-a:no-underline hover:prose-a:underline dark:prose-a:text-emerald-400 prose-code:rounded-md prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-sm prose-code:font-normal dark:prose-code:bg-gray-800 prose-pre:rounded-xl prose-pre:border prose-pre:border-gray-200 dark:prose-pre:border-gray-700 prose-img:rounded-xl prose-blockquote:border-l-emerald-400 prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 lg:prose-base">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeSanitize]}
-                  components={{
-                    h1: ({ children }) => <h1 id={slugify(nodeText(children))}>{children}</h1>,
-                    h2: ({ children }) => <h2 id={slugify(nodeText(children))}>{children}</h2>,
-                    h3: ({ children }) => <h3 id={slugify(nodeText(children))}>{children}</h3>,
-                    h4: ({ children }) => <h4 id={slugify(nodeText(children))}>{children}</h4>,
-                  }}
+          {/* Main content + right sidebar */}
+          <div className="flex min-w-0 flex-1 gap-6 py-6 lg:gap-8 lg:py-8">
+            {/* Article */}
+            <div className="min-w-0 flex-1">
+              {/* Breadcrumb */}
+              <nav className="mb-5 flex flex-wrap items-center gap-1.5 text-sm text-gray-400">
+                <Link href={`/d/${resolved.tenantSlug}`} className="hover:text-emerald-600 dark:hover:text-emerald-400">
+                  {siteTitle}
+                </Link>
+                <span>/</span>
+                <Link
+                  href={`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}`}
+                  className="hover:text-emerald-600 dark:hover:text-emerald-400"
                 >
-                  {page.body}
-                </ReactMarkdown>
-              </div>
-
-              <PublicFeedbackWidget tenantSlug={resolved.tenantSlug} />
-            </article>
-
-            {/* Prev / Next navigation */}
-            {(prevPage || nextPage) && (
-              <nav className="mt-6 grid grid-cols-2 gap-3">
-                {prevPage ? (
-                  <Link
-                    href={`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${prevPage.slug}`}
-                    className="group flex flex-col gap-1 rounded-xl border border-gray-200 bg-white p-4 transition hover:border-emerald-300 hover:shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:hover:border-emerald-700"
-                  >
-                    <span className="text-xs text-gray-400 group-hover:text-emerald-500">← Previous</span>
-                    <span className="truncate text-sm font-semibold text-gray-700 group-hover:text-emerald-700 dark:text-gray-300 dark:group-hover:text-emerald-400">
-                      {prevPage.title}
-                    </span>
-                  </Link>
-                ) : (
-                  <div />
-                )}
-                {nextPage && (
-                  <Link
-                    href={`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${nextPage.slug}`}
-                    className="group flex flex-col items-end gap-1 rounded-xl border border-gray-200 bg-white p-4 text-right transition hover:border-emerald-300 hover:shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:hover:border-emerald-700"
-                  >
-                    <span className="text-xs text-gray-400 group-hover:text-emerald-500">Next →</span>
-                    <span className="truncate text-sm font-semibold text-gray-700 group-hover:text-emerald-700 dark:text-gray-300 dark:group-hover:text-emerald-400">
-                      {nextPage.title}
-                    </span>
-                  </Link>
-                )}
+                  {page.h1}
+                </Link>
+                <span>/</span>
+                <span className="font-medium text-gray-700 dark:text-gray-200">{page.title}</span>
               </nav>
+
+              <article className="card-shimmer rounded-2xl border border-gray-200 bg-white px-6 py-8 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:px-8 sm:py-10">
+                {/* Title row */}
+                <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+                  <h1 className="text-2xl font-bold leading-snug text-gray-900 dark:text-white sm:text-3xl">
+                    {page.title}
+                  </h1>
+                  <CopyPageLinkButton copyLabel={labels.copyLink} copiedLabel={labels.copied} />
+                </div>
+
+                {/* Description lead */}
+                {page.description && (
+                  <p className="mb-7 rounded-xl border border-emerald-200/60 bg-emerald-50/60 px-4 py-3 text-sm leading-relaxed text-emerald-800 dark:border-emerald-700/30 dark:bg-emerald-900/15 dark:text-emerald-300">
+                    {page.description}
+                  </p>
+                )}
+
+                {/* Markdown body */}
+                <div className="prose prose-gray max-w-none dark:prose-invert prose-headings:scroll-mt-28 prose-headings:font-semibold prose-a:text-emerald-600 prose-a:no-underline hover:prose-a:underline dark:prose-a:text-emerald-400 prose-code:rounded-md prose-code:bg-slate-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-sm prose-code:font-normal prose-code:text-slate-800 dark:prose-code:bg-gray-800 dark:prose-code:text-gray-200 prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-100 prose-pre:text-slate-800 dark:prose-pre:border-gray-700 dark:prose-pre:bg-gray-900 dark:prose-pre:text-gray-100 [&_pre_code]:bg-transparent [&_pre_code]:text-inherit prose-img:rounded-xl prose-blockquote:border-l-emerald-400 prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 lg:prose-base">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeSanitize]}
+                    components={{
+                      h1: ({ children }) => linkedHeading(1, children, labels.copyLink),
+                      h2: ({ children }) => linkedHeading(2, children, labels.copyLink),
+                      h3: ({ children }) => linkedHeading(3, children, labels.copyLink),
+                      h4: ({ children }) => linkedHeading(4, children, labels.copyLink),
+                      pre: ({ children, className }) => (
+                        <MarkdownPre copyLabel={labels.copyCode} copiedLabel={labels.copied} className={className}>
+                          {children}
+                        </MarkdownPre>
+                      ),
+                      img: ({ src, alt }) => (
+                        <a href={String(src || "")} target="_blank" rel="noreferrer" title={labels.openImage}>
+                          <img src={String(src || "")} alt={String(alt || "")} loading="lazy" decoding="async" />
+                        </a>
+                      ),
+                    }}
+                  >
+                    {page.body}
+                  </ReactMarkdown>
+                </div>
+
+                {attachments.length > 0 && (
+                  <section className="mt-8 border-t border-gray-100 pt-6 dark:border-gray-800">
+                    <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      {labels.attachments}
+                    </h2>
+                    <ul className="space-y-2">
+                      {attachments.map((attachment) => (
+                        <li key={attachment.id} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
+                          <a
+                            href={attachment.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex max-w-full items-center gap-2 text-sm font-medium text-emerald-700 hover:underline dark:text-emerald-400"
+                          >
+                            <span className="truncate">{attachment.label || attachment.file_name}</span>
+                          </a>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {attachment.file_name} - {formatSize(attachment.size_bytes)}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                <PublicFeedbackWidget
+                  tenantSlug={resolved.tenantSlug}
+                  labels={{
+                    title: labels.helpfulTitle,
+                    helpful: labels.helpfulYes,
+                    notHelpful: labels.helpfulNo,
+                    placeholder: labels.helpfulPlaceholder,
+                    send: labels.sendFeedback,
+                    thanks: labels.feedbackThanks,
+                  }}
+                />
+              </article>
+
+              {/* Prev / Next navigation */}
+              {(prevPage || nextPage) && (
+                <nav className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {prevPage ? (
+                    <Link
+                      href={`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${prevPage.slug}`}
+                      className="group flex flex-col gap-1 rounded-xl border border-gray-200 bg-white p-4 transition hover:border-emerald-300 hover:shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:hover:border-emerald-700"
+                    >
+                      <span className="text-xs text-gray-400 group-hover:text-emerald-500">{labels.previous}</span>
+                      <span className="truncate text-sm font-semibold text-gray-700 group-hover:text-emerald-700 dark:text-gray-300 dark:group-hover:text-emerald-400">
+                        {prevPage.title}
+                      </span>
+                    </Link>
+                  ) : (
+                    <div />
+                  )}
+                  {nextPage && (
+                    <Link
+                      href={`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${nextPage.slug}`}
+                      className="group flex flex-col items-end gap-1 rounded-xl border border-gray-200 bg-white p-4 text-end transition hover:border-emerald-300 hover:shadow-sm dark:border-gray-800 dark:bg-gray-900 dark:hover:border-emerald-700"
+                    >
+                      <span className="text-xs text-gray-400 group-hover:text-emerald-500">{labels.next}</span>
+                      <span className="truncate text-sm font-semibold text-gray-700 group-hover:text-emerald-700 dark:text-gray-300 dark:group-hover:text-emerald-400">
+                        {nextPage.title}
+                      </span>
+                    </Link>
+                  )}
+                </nav>
+              )}
+            </div>
+
+            {/* Right sidebar — TOC */}
+            {toc.length > 0 && (
+              <aside className="mt-0 hidden xl:block xl:w-56 xl:shrink-0">
+                <div className="sticky top-16">
+                  <DocSidebar
+                    toc={toc}
+                    navItems={[]}
+                    currentSlug={resolved.h2Slug}
+                    tenantSlug={resolved.tenantSlug}
+                    categorySlug={resolved.categorySlug}
+                    h1Slug={resolved.h1Slug}
+                    navLabel={labels.navigation}
+                    tocLabel={labels.tableOfContents}
+                  />
+                </div>
+              </aside>
             )}
           </div>
-
-          {/* Right sidebar */}
-          {(siblings.length > 0 || toc.length > 0) && (
-            <aside className="mt-6 lg:mt-0 lg:w-60 lg:shrink-0 xl:w-64">
-              <div className="lg:sticky lg:top-20">
-                <DocSidebar
-                  toc={toc}
-                  navItems={siblings}
-                  currentSlug={resolved.h2Slug}
-                  tenantSlug={resolved.tenantSlug}
-                  categorySlug={resolved.categorySlug}
-                  h1Slug={resolved.h1Slug}
-                  navLabel="Navigation"
-                  tocLabel="Table of Contents"
-                />
-              </div>
-            </aside>
-          )}
         </div>
       </div>
 
-      <BackToTop />
-      <AdminFloatingButton tenantSlug={resolved.tenantSlug} />
+      <BackToTop label={labels.backToTop} />
+      <AdminFloatingButton tenantSlug={resolved.tenantSlug} label={labels.adminPanel} title={labels.openAdminPanel} />
     </main>
   );
 }

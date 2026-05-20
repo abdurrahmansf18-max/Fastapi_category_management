@@ -1,22 +1,17 @@
 // frontend/src/shared/api/admin.ts
 import { http } from "./client";
 import type {
-  TokenOut,
   AdminUser,
   Category,
   Heading,
   Content,
   ContentImage,
+  ContentAttachment,
+  RedirectRule,
 } from "../types/models";
 
 // --- Auth ---
 export const AdminAuth = {
-  // OAuth2PasswordRequestForm uyumlu (application/x-www-form-urlencoded)
-  login(username: string, password: string) {
-    const body = new URLSearchParams({ username, password });
-    // login'de Authorization header istemiyoruz
-    return http.post<TokenOut>("/admin/login", body, { auth: false });
-  },
   me: () => http.get<AdminUser>("/admin/me"),
   logout: () => http.post<void>("/admin/logout", undefined),
 };
@@ -38,6 +33,7 @@ export const CategoriesApi = {
   create: (payload: {
     name: string;
     description?: string | null;
+    seo_description?: string | null;
     sort_order?: number;
   }) => http.post<Category>("/admin/categories", payload),
   update: (
@@ -45,6 +41,7 @@ export const CategoriesApi = {
     payload: Partial<{
       name: string;
       description?: string | null;
+      seo_description?: string | null;
       sort_order?: number;
     }>
   ) => http.put<Category>(`/admin/categories/${id}`, payload),
@@ -57,6 +54,7 @@ type HeadingCreateL1 = {
   category_id: string;
   title: string;
   description?: string;
+  seo_description?: string;
   sort_order?: number;
 };
 type HeadingCreateL2 = {
@@ -64,11 +62,13 @@ type HeadingCreateL2 = {
   parent_heading_id: string;
   title: string;
   description?: string;
+  seo_description?: string;
   sort_order?: number;
 };
 type HeadingUpdate = Partial<{
   title: string;
   description?: string | null;
+  seo_description?: string | null;
   sort_order?: number;
 }>;
 
@@ -188,7 +188,68 @@ export const ContentImagesApi = {
   },
 };
 
-export const AI = { formatMarkdown: (text: string) => http.post<{markdown: string}>('/admin/format-markdown', { text }) };
+type ContentAttachmentCreate = {
+  content_id: string;
+  url: string;
+  label?: string;
+  file_name?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  sort_order?: number;
+};
+type ContentAttachmentUpdate = Partial<{
+  url: string;
+  label?: string;
+  file_name?: string;
+  mime_type?: string;
+  size_bytes?: number;
+  sort_order?: number;
+}>;
+
+export const ContentAttachmentsApi = {
+  list(content_id?: string) {
+    return content_id
+      ? http.get<ContentAttachment[]>(`/admin/content-attachments?content_id=${content_id}`)
+      : http.get<ContentAttachment[]>("/admin/content-attachments");
+  },
+  get(id: string) {
+    return http.get<ContentAttachment>(`/admin/content-attachments/${id}`);
+  },
+  create(payload: ContentAttachmentCreate) {
+    return http.post<ContentAttachment>("/admin/content-attachments", payload);
+  },
+  update(id: string, payload: ContentAttachmentUpdate) {
+    return http.put<ContentAttachment>(`/admin/content-attachments/${id}`, payload);
+  },
+  remove(id: string) {
+    return http.delete<void>(`/admin/content-attachments/${id}`);
+  },
+  upload(file: File, content_id: string, label?: string, sort_order?: number) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("content_id", content_id);
+    if (label) formData.append("label", label);
+    if (sort_order !== undefined) formData.append("sort_order", sort_order.toString());
+    return http.post<ContentAttachment>("/admin/content-attachments/upload", formData);
+  },
+};
+
+type RedirectRuleCreate = {
+  source_path: string;
+  target_path: string;
+  status_code?: 301 | 302 | 307 | 308;
+  is_active?: boolean;
+  note?: string;
+};
+
+type RedirectRuleUpdate = Partial<RedirectRuleCreate>;
+
+export const RedirectRulesApi = {
+  list: () => http.get<RedirectRule[]>("/admin/redirects"),
+  create: (payload: RedirectRuleCreate) => http.post<RedirectRule>("/admin/redirects", payload),
+  update: (id: string, payload: RedirectRuleUpdate) => http.put<RedirectRule>(`/admin/redirects/${id}`, payload),
+  remove: (id: string) => http.delete<void>(`/admin/redirects/${id}`),
+};
 
 export const AdminSettingsApi = {
   updateSettings: (data: { site_title?: string; site_logo?: string }) => http.put("/admin/settings", data),
@@ -208,13 +269,8 @@ export type SearchAnalyticsRow = {
 };
 
 export const AdminSearchApi = {
-  analytics: () => http.get<SearchAnalyticsRow[]>("/admin/search/analytics"),
+  analytics: () => http.get<SearchAnalyticsRow[]>("/admin/search/analytics?limit=50"),
   reindex: () => http.post<{ queued: boolean; task_id: string; tenant_slug: string }>("/admin/search/reindex"),
-};
-
-export const AdminBillingApi = {
-  checkout: () => http.post<{ url: string }>("/admin/billing/checkout"),
-  portal: () => http.post<{ url: string }>("/admin/billing/portal"),
 };
 
 export const AdminHealthApi = {

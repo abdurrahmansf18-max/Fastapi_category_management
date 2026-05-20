@@ -4,6 +4,9 @@ import smtplib
 from email.message import EmailMessage
 
 from app.core.config import settings
+from app.core.observability import get_logger
+
+logger = get_logger()
 
 
 def smtp_configured() -> bool:
@@ -12,7 +15,15 @@ def smtp_configured() -> bool:
 
 def send_verification_email(to_email: str, verification_link: str) -> None:
     if not smtp_configured():
-        print(f"[dev-email] Verify {to_email}: {verification_link}")
+        logger.info(
+            "email.verification.dev_link",
+            extra={
+                "props": {
+                    "to_email": to_email,
+                    "verification_link": verification_link,
+                }
+            },
+        )
         return
 
     msg = EmailMessage()
@@ -30,3 +41,4 @@ def send_verification_email(to_email: str, verification_link: str) -> None:
         if settings.SMTP_USER and settings.SMTP_PASSWORD:
             smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
         smtp.send_message(msg)
+    logger.info("email.verification.sent", extra={"props": {"to_email": to_email}})

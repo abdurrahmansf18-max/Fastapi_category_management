@@ -4,8 +4,10 @@ import asyncio
 from typing import Any
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
+from app.core.observability import observe_queue_task
 
 
 celery_app = Celery(
@@ -22,6 +24,12 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
+    beat_schedule={
+        "ops-prune-audit-events-daily": {
+            "task": "ops.prune_audit_events",
+            "schedule": crontab(hour=3, minute=10),
+        }
+    },
 )
 
 
@@ -40,9 +48,40 @@ async def _reindex_tenant(tenant_slug: str) -> dict[str, Any]:
 
 @celery_app.task(name="search.reindex_tenant")
 def reindex_tenant_task(tenant_slug: str) -> dict[str, Any]:
-    return asyncio.run(_reindex_tenant(tenant_slug))
+    try:
+        result = asyncio.run(_reindex_tenant(tenant_slug))
+        observe_queue_task("search.reindex_tenant", "success")
+        return result
+    except Exception:
+        observe_queue_task("search.reindex_tenant", "failure")
+        raise
 
 
 @celery_app.task(name="ops.healthcheck")
 def healthcheck_task() -> dict[str, bool]:
     return {"ok": True}
+
+
+async def _prune_audit_events(retention_days: int) -> dict[str, int]:
+    from app.db.session import platform_execute
+
+    rows = await platform_execute(
+        """
+        DELETE FROM public.audit_event
+        WHERE created_at < (now() - (:retention_days || ' days')::interval)
+        RETURNING id
+        """,
+        {"retention_days": retention_days},
+    )
+    return {"deleted": len(rows or [])}
+
+
+@celery_app.task(name="ops.prune_audit_events")
+def prune_audit_events_task() -> dict[str, int]:
+    try:
+        result = asyncio.run(_prune_audit_events(settings.AUDIT_RETENTION_DAYS))
+        observe_queue_task("ops.prune_audit_events", "success")
+        return result
+    except Exception:
+        observe_queue_task("ops.prune_audit_events", "failure")
+        raise

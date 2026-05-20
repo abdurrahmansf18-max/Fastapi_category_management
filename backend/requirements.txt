@@ -53,4 +53,4 @@ prometheus-client==0.21.1
 pyotp==2.9.0
 redis==5.2.1
 sentry-sdk==2.20.0
-stripe==11.5.0
+iyzipay==1.0.46

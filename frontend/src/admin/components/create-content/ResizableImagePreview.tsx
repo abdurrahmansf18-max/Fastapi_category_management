@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ImagePlaceholder } from './types';
 
 interface ResizableImagePreviewProps {
@@ -10,6 +11,7 @@ export default function ResizableImagePreview({
   image,
   onSizeChange,
 }: ResizableImagePreviewProps) {
+  const { t } = useTranslation();
   const [isResizing, setIsResizing] = useState(false);
   const [dimensions, setDimensions] = useState({
     width: image.width || 300,
@@ -105,7 +107,7 @@ export default function ResizableImagePreview({
       <div
         className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-se-resize hover:bg-blue-600 transition-colors z-10"
         onMouseDown={handleMouseDown}
-        title="Boyutu değiştirmek için sürükleyin"
+        title={t("drag_to_resize")}
         style={{
           userSelect: "none",
           touchAction: "none",

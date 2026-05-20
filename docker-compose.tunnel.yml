@@ -1,0 +1,11 @@
+# Cloudflare Quick Tunnel — geçici public URL için
+# Bu dosya frontend servisi Docker içinde çalışırken kullanılır.
+# (local + dev compose ile uyumlu)
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --url http://frontend:3000 --no-autoupdate
+    depends_on:
+      - frontend

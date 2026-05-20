@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { apiGet, siteUrl, tenantSettings } from "../../../lib/api";
 import { publicCopy, resolvePublicLang } from "../../../lib/server-i18n";
 import AdminFloatingButton from "../AdminFloatingButton";
@@ -17,6 +18,7 @@ type SearchHit = {
 };
 
 type RouteParams = { tenantSlug: string };
+type DocsCategory = { id: string; name: string; slug: string };
 
 export async function generateMetadata({
   params,
@@ -44,11 +46,16 @@ export default async function SearchPage({
   searchParams,
 }: {
   params: Promise<RouteParams>;
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; category?: string }>;
 }) {
   const { tenantSlug } = await params;
-  const { q = "" } = await searchParams;
-  const [settings, lang] = await Promise.all([tenantSettings(tenantSlug), resolvePublicLang()]);
+  const { q = "", category = "" } = await searchParams;
+  const [settings, lang, categories] = await Promise.all([
+    tenantSettings(tenantSlug),
+    resolvePublicLang(),
+    apiGet<DocsCategory[]>(`/t/${tenantSlug}/docs-index`, 60),
+  ]);
+  if (categories === null) notFound();
   const labels = publicCopy[lang];
   const dir = lang === "ar" ? "rtl" : "ltr";
   const query = q.trim();
@@ -56,13 +63,15 @@ export default async function SearchPage({
   const initialHits =
     query.length >= 2
       ? (await apiGet<SearchHit[]>(
-          `/t/${tenantSlug}/search?q=${encodeURIComponent(query)}&limit=30`,
+          `/t/${tenantSlug}/search?q=${encodeURIComponent(query)}&limit=30${
+            category ? `&category_slug=${encodeURIComponent(category)}` : ""
+          }`,
           15
         )) || []
       : [];
 
   return (
-    <main dir={dir} className="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-50">
+    <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <PublicHeader tenantSlug={tenantSlug} settings={settings} lang={lang} />
 
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -83,7 +92,9 @@ export default async function SearchPage({
         <SearchPageClient
           tenantSlug={tenantSlug}
           initialQuery={query}
+          initialCategory={category}
           initialHits={initialHits}
+          categories={categories}
           labels={{
             searchPlaceholder: labels.searchPlaceholder,
             search: labels.search,
@@ -91,11 +102,15 @@ export default async function SearchPage({
             noResult: labels.noResult,
             backToDocs: labels.backToDocs,
             searchTitle: labels.searchTitle,
+            allCategories: labels.allCategories,
+            clearSearch: labels.clearSearch,
+            searchResults: labels.searchResults,
+            searchError: labels.searchError,
           }}
         />
       </div>
 
-      <AdminFloatingButton tenantSlug={tenantSlug} />
+      <AdminFloatingButton tenantSlug={tenantSlug} label={labels.adminPanel} title={labels.openAdminPanel} />
     </main>
   );
 }

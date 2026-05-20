@@ -5,6 +5,7 @@ const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
+  allowedDevOrigins: ["*.trycloudflare.com"],
   async rewrites() {
     return [
       {

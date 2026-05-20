@@ -22,8 +22,8 @@ interface HeadingsViewProps {
   showPrompt: (title: string, defaultValue?: string, message?: string) => Promise<string | null>;
   updateHeading: (id: UUID, fields: any) => Promise<void>;
   deleteHeading: (id: UUID) => Promise<void>;
-  createH1: (catId: UUID, title: string) => Promise<void>;
-  createH2: (parentId: UUID, title: string) => Promise<void>;
+  createH1: (catId: UUID, title: string, description?: string, seoDescription?: string) => Promise<void>;
+  createH2: (parentId: UUID, title: string, description?: string, seoDescription?: string) => Promise<void>;
 }
 
 export default function HeadingsView({
@@ -53,14 +53,14 @@ export default function HeadingsView({
     const needle = h1Query.trim().toLowerCase();
     if (!needle) return h1s;
     return h1s.filter((heading) =>
-      `${heading.title} ${heading.description || ""} ${heading.slug}`.toLowerCase().includes(needle)
+      `${heading.title} ${heading.description || ""} ${heading.seo_description || ""} ${heading.slug}`.toLowerCase().includes(needle)
     );
   }, [h1Query, h1s]);
   const filteredH2 = useMemo(() => {
     const needle = h2Query.trim().toLowerCase();
     if (!needle) return h2s;
     return h2s.filter((heading) =>
-      `${heading.title} ${heading.description || ""} ${heading.slug}`.toLowerCase().includes(needle)
+      `${heading.title} ${heading.description || ""} ${heading.seo_description || ""} ${heading.slug}`.toLowerCase().includes(needle)
     );
   }, [h2Query, h2s]);
   const pagedH1 = paginate(filteredH1, h1Page, 12);
@@ -149,10 +149,16 @@ export default function HeadingsView({
                               if (title === null) return;
                               const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
                               const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
+                              const seoDescription = await showPrompt(
+                                t("heading_seo_description_title"),
+                                h.seo_description || "",
+                                t("heading_seo_description_hint")
+                              );
                               updateHeading(h.id, {
                                 title: title || h.title,
                                 sort_order: Number(sort ?? h.sort_order),
                                 description: toUndef(description),
+                                seo_description: toUndef(seoDescription),
                               }).catch(() => {});
                             }}
                             title={t('edit')}
@@ -186,13 +192,15 @@ export default function HeadingsView({
                 </div>
               )}
 
-              <div className="mt-8">
-                {activeCat && (
-                  <CreateH1Form
-                    onCreate={(title) => createH1(activeCat.id, title)}
-                  />
-                )}
-              </div>
+                <div className="mt-8">
+                  {activeCat && (
+                    <CreateH1Form
+                      onCreate={(title, description, seoDescription) =>
+                        createH1(activeCat.id, title, description, seoDescription)
+                      }
+                    />
+                  )}
+                </div>
             </div>
 
             {/* L2 Headings */}
@@ -240,10 +248,16 @@ export default function HeadingsView({
                                 if (title === null) return;
                                 const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
                                 const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
+                                const seoDescription = await showPrompt(
+                                  t("heading_seo_description_title"),
+                                  h.seo_description || "",
+                                  t("heading_seo_description_hint")
+                                );
                                 updateHeading(h.id, {
                                   title: title || h.title,
                                   sort_order: Number(sort ?? h.sort_order),
                                   description: toUndef(description),
+                                  seo_description: toUndef(seoDescription),
                                 }).catch(() => {});
                               }}
                               title={t('edit')}
@@ -293,7 +307,9 @@ export default function HeadingsView({
                     </div>
                   ) : (
                     <CreateH2Form
-                      onCreate={(title) => createH2(activeH1.id, title)}
+                      onCreate={(title, description, seoDescription) =>
+                        createH2(activeH1.id, title, description, seoDescription)
+                      }
                     />
                   )}
                 </div>

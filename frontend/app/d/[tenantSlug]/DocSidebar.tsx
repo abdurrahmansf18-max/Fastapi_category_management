@@ -29,16 +29,17 @@ export default function DocSidebar({
 
   useEffect(() => {
     if (toc.length === 0) return;
+    const visibleIds = intersecting.current;
 
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((e) => {
-          if (e.isIntersecting) intersecting.current.add(e.target.id);
-          else intersecting.current.delete(e.target.id);
+          if (e.isIntersecting) visibleIds.add(e.target.id);
+          else visibleIds.delete(e.target.id);
         });
         // Pick topmost visible heading (first in toc order)
         for (const { id } of toc) {
-          if (intersecting.current.has(id)) {
+          if (visibleIds.has(id)) {
             setActiveId(id);
             break;
           }
@@ -54,7 +55,7 @@ export default function DocSidebar({
 
     return () => {
       observer.disconnect();
-      intersecting.current.clear();
+      visibleIds.clear();
     };
   }, [toc]);
 
@@ -62,9 +63,10 @@ export default function DocSidebar({
     <div className="space-y-3">
       {/* Navigation — sibling pages */}
       {navItems.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <div className="border-b border-gray-100 px-4 py-2.5 dark:border-gray-800">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+        <div className="card-shimmer overflow-hidden rounded-xl border border-gray-200/80 bg-white/80 shadow-sm backdrop-blur-sm dark:border-gray-700/50 dark:bg-gray-800/50">
+          <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-700/50 px-4 py-2.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981]" />
+            <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
               {navLabel}
             </p>
           </div>
@@ -96,32 +98,33 @@ export default function DocSidebar({
 
       {/* Table of Contents */}
       {toc.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <div className="border-b border-gray-100 px-4 py-2.5 dark:border-gray-800">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+        <div className="card-shimmer overflow-hidden rounded-xl border border-gray-200/80 bg-white/80 shadow-sm backdrop-blur-sm dark:border-gray-700/50 dark:bg-gray-800/50">
+          <div className="flex items-center gap-2 border-b border-gray-100 dark:border-gray-700/50 px-4 py-2.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981]" />
+            <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
               {tocLabel}
             </p>
           </div>
-          <nav className="thin-scroll max-h-96 overflow-y-auto p-1.5">
+          <nav className="thin-scroll max-h-96 overflow-y-auto p-2 space-y-0.5">
             {toc.map((item, i) => {
               const active = activeId === item.id;
               return (
                 <a
                   key={`${item.id}-${i}`}
                   href={`#${item.id}`}
-                  className={`flex items-center gap-2 rounded-lg py-1.5 pr-3 text-sm transition-colors ${
+                  className={`flex items-center gap-2 rounded-lg py-1.5 pe-3 text-xs leading-snug transition-colors ${
                     active
-                      ? "font-medium text-emerald-700 dark:text-emerald-400"
-                      : "text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                      ? "bg-emerald-50 font-semibold text-emerald-700 dark:bg-emerald-900/25 dark:text-emerald-400"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700/40 dark:hover:text-white"
                   }`}
-                  style={{ paddingLeft: `${(item.level - 1) * 12 + 12}px` }}
+                  style={{ paddingInlineStart: `${(item.level - 1) * 12 + 8}px` }}
                 >
                   <span
                     className={`h-px w-2.5 shrink-0 transition-colors ${
                       active ? "bg-emerald-500" : "bg-gray-300 dark:bg-gray-600"
                     }`}
                   />
-                  <span className="truncate leading-snug">{item.text}</span>
+                  <span className="truncate">{item.text}</span>
                 </a>
               );
             })}

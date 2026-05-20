@@ -18,7 +18,7 @@ interface CategoriesViewProps {
   showPrompt: (title: string, defaultValue?: string, message?: string) => Promise<string | null>;
   updateCategory: (id: UUID, fields: any) => Promise<void>;
   deleteCategory: (id: UUID) => Promise<void>;
-  createCategory: (name: string, description?: string) => Promise<void>;
+  createCategory: (name: string, description?: string, seoDescription?: string) => Promise<void>;
 }
 
 export default function CategoriesView({
@@ -42,7 +42,7 @@ export default function CategoriesView({
     const needle = query.trim().toLowerCase();
     if (!needle) return cats;
     return cats.filter((category) =>
-      `${category.name} ${category.description || ""} ${category.slug}`.toLowerCase().includes(needle)
+      `${category.name} ${category.description || ""} ${category.seo_description || ""} ${category.slug}`.toLowerCase().includes(needle)
     );
   }, [cats, query]);
   const paged = paginate(filtered, page, 12);
@@ -122,10 +122,16 @@ export default function CategoriesView({
                           c.description || "",
                           t("description_optional")
                         );
+                        const seoDescription = await showPrompt(
+                          t("category_seo_description_title"),
+                          c.seo_description || "",
+                          t("category_seo_description_hint")
+                        );
                         updateCategory(c.id, {
                           name: name || c.name,
                           sort_order: Number(sort ?? c.sort_order),
                           description: toUndef(description),
+                          seo_description: toUndef(seoDescription),
                         }).catch(() => {});
                       }}
                       title={t("edit")}

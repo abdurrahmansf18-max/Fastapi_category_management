@@ -114,7 +114,7 @@ function ResizableImage({ image, onSizeChange }: ResizableImageProps) {
     >
       <img
         src={image.url || "/placeholder.svg"}
-        alt={image.alt || "Content image"}
+        alt={image.alt || t("content_image_alt")}
         className="w-full h-full object-cover rounded"
         onError={(e) => {
           (e.target as HTMLImageElement).src = "/broken-image.jpg";
@@ -130,7 +130,7 @@ function ResizableImage({ image, onSizeChange }: ResizableImageProps) {
       <div
         className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-se-resize hover:bg-blue-600 transition-colors z-10"
         onMouseDown={handleMouseDown}
-        title={t("drag_to_resize") || "Drag"}
+        title={t("drag_to_resize")}
         style={{
           userSelect: "none",
           touchAction: "none",
@@ -225,12 +225,7 @@ export default function ContentImageManager({
         onNotification(t("image_added_success"), "success");
       } catch (error) {
         console.error("[v0] Upload failed:", error);
-        onNotification(
-          `Resim yüklenirken hata oluştu: ${
-            error instanceof Error ? error.message : "Bilinmeyen hata"
-          }`,
-          "error"
-        );
+        onNotification(t("file_upload_failed"), "error");
       } finally {
         setUploading(false);
       }
@@ -438,7 +433,7 @@ export default function ContentImageManager({
                         ? URL.createObjectURL(selectedFile)
                         : newImage.url
                     }
-                    alt={newImage.alt || "Yeni resim önizlemesi"}
+                    alt={newImage.alt || t("new_image_preview_alt")}
                     className="w-full h-full object-cover rounded"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = "/placeholder.svg";
@@ -538,7 +533,7 @@ export default function ContentImageManager({
                         )
                       }
                       className="w-16 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      title="Sıra numarası"
+                      title={t("sort_order")}
                     />
                     <button
                       onClick={() => handleDeleteImage(image.id)}
@@ -570,8 +565,8 @@ export default function ContentImageManager({
 function isValidImageUrl(url: string): boolean {
   if (!url) return false;
   try {
-    new URL(url);
-    return /\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(url);
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
   } catch {
     return false;
   }

@@ -4,6 +4,7 @@ import secrets
 
 from fastapi import HTTPException, Request, Response, status
 
+from app.core.audit import log_audit_event
 from app.core.config import settings
 
 
@@ -115,12 +116,17 @@ def set_admin_impersonation_cookie(
         )
 
 
-def validate_admin_csrf(request: Request, tenant_slug: str) -> None:
+async def validate_admin_csrf(request: Request, tenant_slug: str) -> None:
     if request.method.upper() in {"GET", "HEAD", "OPTIONS"}:
         return
     cookie_value = request.cookies.get(admin_csrf_cookie_name(tenant_slug))
     header_value = request.headers.get("x-csrf-token")
     if not cookie_value or not header_value or not secrets.compare_digest(cookie_value, header_value):
+        await log_audit_event(
+            action="security.csrf_failed",
+            request=request,
+            metadata={"scope": "tenant_admin", "tenant_slug": tenant_slug},
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid CSRF token",
@@ -182,12 +188,17 @@ def clear_platform_auth_cookies(response: Response) -> None:
     response.delete_cookie(settings.PLATFORM_CSRF_COOKIE, path="/platform/admin")
 
 
-def validate_platform_csrf(request: Request) -> None:
+async def validate_platform_csrf(request: Request) -> None:
     if request.method.upper() in {"GET", "HEAD", "OPTIONS"}:
         return
     cookie_value = request.cookies.get(settings.PLATFORM_CSRF_COOKIE)
     header_value = request.headers.get("x-csrf-token")
     if not cookie_value or not header_value or not secrets.compare_digest(cookie_value, header_value):
+        await log_audit_event(
+            action="security.csrf_failed",
+            request=request,
+            metadata={"scope": "platform_admin"},
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid CSRF token",

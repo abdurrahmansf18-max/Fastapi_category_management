@@ -7,14 +7,14 @@ export const toUndef = (s: string | null | undefined) => {
   return v === "" ? null : v;
 };
 
-export const sectionCard =
-  "rounded-md border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:p-5";
+// Outer section container — white in light / gray-900 in dark
+export const sectionCard = "section-card";
 
-export const itemCard =
-  "rounded-md border border-gray-200 bg-white p-3 transition-colors hover:border-emerald-500 dark:border-gray-800 dark:bg-gray-950";
+// Inner item tile — slate-50 in light / gray-950 in dark
+export const itemCard = "item-card";
 
 export const iconButton =
-  "inline-flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 text-gray-700 transition-colors hover:border-emerald-600 hover:bg-emerald-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-emerald-950";
+  "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-300 text-gray-600 transition-colors hover:border-emerald-500 hover:bg-emerald-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-emerald-950";
 
 export function paginate<T>(items: T[], page: number, pageSize: number) {
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));

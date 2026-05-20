@@ -12,6 +12,8 @@ from app.db.models import (
     heading as t_heading,
     content as t_content,
     content_image as t_content_image,
+    content_attachment as t_content_attachment,
+    redirect_rule as t_redirect_rule,
 )
 from app.schemas import (
     ContentPublic,
@@ -20,6 +22,7 @@ from app.schemas import (
     PageOut,
     MenuNode,
     ContentImageOut,
+    ContentAttachmentOut,
 )
 from app.core.tenancy import require_tenant_context
 from app.core.tenancy import get_tenant_context
@@ -38,6 +41,17 @@ class FeedbackIn(BaseModel):
     rating: str = Field(pattern="^(helpful|not_helpful)$")
     url: str = Field(min_length=1, max_length=500)
     message: str | None = Field(default=None, max_length=1000)
+
+
+def _resolve_site_settings(settings: dict, tenant) -> dict:
+    resolved = dict(settings)
+    title = (resolved.get("site_title") or "").strip()
+    if not title or title == "Fastapi":
+        resolved["site_title"] = tenant.name or tenant.slug
+    if "site_logo" not in resolved:
+        resolved["site_logo"] = ""
+    resolved["plan_code"] = tenant.plan_code
+    return resolved
 
 # ========== Helpers (EXISTS koşulları) ==========
 
@@ -174,6 +188,7 @@ async def get_page(category_slug: str, h1_slug: str, h2_slug: str):
             h2.c.slug.label("h2"),
             h2.c.title.label("title"),
             ct.c.body.label("body"),
+            ct.c.description.label("description"),
         )
         .select_from(
             c.join(h1, and_(h1.c.category_id == c.c.id, h1.c.level == 1))
@@ -312,6 +327,106 @@ async def list_images_by_page(category_slug: str, h1_slug: str, h2_slug: str, re
             d["url"] = _abs_url(request, d["url"]) 
         result.append(d)
     return result
+
+
+@public_router.get("/contents/{id}/attachments", response_model=List[ContentAttachmentOut])
+async def list_attachments_by_content_id(id: uuid.UUID, request: Request):
+    ct_stmt = select(t_content.c.id).where(and_(t_content.c.id == id, t_content.c.status == "published"))
+    ct_row = await fetch_one(ct_stmt)
+    if not ct_row:
+        raise HTTPException(404, "Content not found")
+
+    stmt = (
+        select(
+            t_content_attachment.c.id,
+            t_content_attachment.c.content_id,
+            t_content_attachment.c.url,
+            t_content_attachment.c.label,
+            t_content_attachment.c.file_name,
+            t_content_attachment.c.mime_type,
+            t_content_attachment.c.size_bytes,
+            t_content_attachment.c.sort_order,
+            t_content_attachment.c.created_at,
+            t_content_attachment.c.updated_at,
+        )
+        .where(t_content_attachment.c.content_id == id)
+        .order_by(t_content_attachment.c.sort_order, t_content_attachment.c.created_at, t_content_attachment.c.id)
+    )
+    rows = await fetch_all(stmt)
+    result = []
+    for row in rows:
+        data = dict(row)
+        if data.get("url"):
+            data["url"] = _abs_url(request, data["url"])
+        result.append(data)
+    return result
+
+
+@public_router.get("/page/{category_slug}/{h1_slug}/{h2_slug}/attachments", response_model=List[ContentAttachmentOut])
+async def list_attachments_by_page(category_slug: str, h1_slug: str, h2_slug: str, request: Request):
+    c = t_category.alias("c_att")
+    h1 = t_heading.alias("h1_att")
+    h2 = t_heading.alias("h2_att")
+    ct = t_content.alias("ct_att")
+
+    ct_stmt = (
+        select(ct.c.id)
+        .select_from(
+            c.join(h1, and_(h1.c.category_id == c.c.id, h1.c.level == 1))
+             .join(h2, and_(h2.c.parent_heading_id == h1.c.id, h2.c.level == 2))
+             .join(ct, ct.c.heading_id == h2.c.id)
+        )
+        .where(and_(c.c.slug == category_slug, h1.c.slug == h1_slug, h2.c.slug == h2_slug, ct.c.status == "published"))
+        .limit(1)
+    )
+    ct_row = await fetch_one(ct_stmt)
+    if not ct_row:
+        raise HTTPException(404, "Page not found")
+
+    stmt = (
+        select(
+            t_content_attachment.c.id,
+            t_content_attachment.c.content_id,
+            t_content_attachment.c.url,
+            t_content_attachment.c.label,
+            t_content_attachment.c.file_name,
+            t_content_attachment.c.mime_type,
+            t_content_attachment.c.size_bytes,
+            t_content_attachment.c.sort_order,
+            t_content_attachment.c.created_at,
+            t_content_attachment.c.updated_at,
+        )
+        .where(t_content_attachment.c.content_id == ct_row["id"])
+        .order_by(t_content_attachment.c.sort_order, t_content_attachment.c.created_at, t_content_attachment.c.id)
+    )
+    rows = await fetch_all(stmt)
+    result = []
+    for row in rows:
+        data = dict(row)
+        if data.get("url"):
+            data["url"] = _abs_url(request, data["url"])
+        result.append(data)
+    return result
+
+
+@public_router.get("/redirects/resolve")
+async def resolve_redirect(path: str = Query(..., min_length=1, max_length=500)):
+    normalized = path.strip()
+    if not normalized.startswith("/"):
+        normalized = "/" + normalized
+    if len(normalized) > 1 and normalized.endswith("/"):
+        normalized = normalized.rstrip("/")
+
+    row = await fetch_one(
+        select(
+            t_redirect_rule.c.source_path,
+            t_redirect_rule.c.target_path,
+            t_redirect_rule.c.status_code,
+        ).where(and_(t_redirect_rule.c.is_active == True, t_redirect_rule.c.source_path == normalized))
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Redirect not found")
+    return dict(row)
 
 
 @public_router.get("/menu", response_model=List[MenuNode])
@@ -545,12 +660,10 @@ async def get_site_settings():
     cache_key = f"{tenant_public_cache_prefix(tenant.id)}settings"
     cached = await cache_get_json(cache_key)
     if cached is not None:
-        return cached
+        return _resolve_site_settings(cached, tenant)
 
     rows = await fetch_all("SELECT key, value FROM site_setting")
     settings = {row["key"]: row["value"] for row in rows}
-    # Ensure default values exist in return
-    if "site_title" not in settings: settings["site_title"] = "Fastapi"
-    if "site_logo" not in settings: settings["site_logo"] = ""
+    settings = _resolve_site_settings(settings, tenant)
     await cache_set_json(cache_key, settings, ttl_seconds=300)
     return settings

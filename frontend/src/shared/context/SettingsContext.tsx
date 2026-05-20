@@ -15,10 +15,22 @@ interface SettingsContextVal {
 
 const SettingsContext = createContext<SettingsContextVal | null>(null);
 
+function titleFromCurrentTenant() {
+  if (typeof window === "undefined") return "";
+  const match = window.location.pathname.match(/^\/d\/([^/]+)/);
+  const slug = match ? decodeURIComponent(match[1]) : "";
+  if (!slug) return "";
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [siteTitle, setSiteTitle] = useState("Fastapi");
+  const [siteTitle, setSiteTitle] = useState(titleFromCurrentTenant);
   const [siteLogo, setSiteLogo] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +38,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const res = await PublicApi.settings();
       if (res) {
-        setSiteTitle(res.site_title || "Fastapi");
+        setSiteTitle(res.site_title || titleFromCurrentTenant());
         setSiteLogo(res.site_logo ? toPublicUrl(res.site_logo) : "");
       }
     } catch (error) {

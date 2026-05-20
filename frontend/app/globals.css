@@ -2,58 +2,441 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-  scroll-behavior: smooth;
-  @apply bg-white text-gray-900;
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    @apply antialiased selection:bg-teal-200 selection:text-teal-900;
+  }
+  html.dark {
+    @apply selection:bg-teal-900 selection:text-teal-100;
+  }
+  body {
+    @apply transition-colors duration-300 ease-in-out font-sans;
+  }
 }
 
-html.dark {
-  @apply bg-gray-950 text-gray-50;
-}
-
-* {
-  min-width: 0;
-}
-
+/* ──────────────────────────────────────────────────────────────────
+   BACKGROUND  — light: medium-gray  |  dark: deep blue-black
+   ────────────────────────────────────────────────────────────────── */
 body {
-  overflow-x: hidden;
+  background-color: #e8edf2;                    /* light: warm slate-200 */
+}
+.dark body {
+  background-color: #0a0f1a;
 }
 
-img,
-video,
-canvas,
-svg {
-  max-width: 100%;
+/* ──────────────────────────────────────────────────────────────────
+   CSS VARIABLES
+   ────────────────────────────────────────────────────────────────── */
+:root {
+  --card-bg:        rgba(255, 255, 255, 0.88);
+  --card-bg-inner:  rgba(241, 245, 249, 0.92); /* slate-100 */
+  --card-border:    rgba(203, 213, 225, 0.8);  /* slate-300 */
+  --card-shadow:    0 1px 4px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+  --section-title:  #1e293b;                   /* slate-800 */
+  --text-muted:     #64748b;                   /* slate-500 */
+}
+.dark {
+  --card-bg:        rgba(22, 30, 46, 0.90);    /* gray-900-ish */
+  --card-bg-inner:  rgba(10, 16, 30, 0.92);    /* gray-950-ish */
+  --card-border:    rgba(51, 65, 85, 0.70);    /* slate-700 */
+  --card-shadow:    0 1px 3px rgba(0,0,0,.3),  0 4px 20px rgba(0,0,0,.25);
+  --section-title:  #f1f5f9;
+  --text-muted:     #94a3b8;
 }
 
-button,
-a,
-input,
-select,
-textarea {
-  overflow-wrap: anywhere;
+/* ──────────────────────────────────────────────────────────────────
+   GREEN SHIMMER — transparent left-to-right hover glow (admin + public)
+   ────────────────────────────────────────────────────────────────── */
+.section-card,
+.item-card,
+.card-shimmer {
+  position: relative;
+  overflow: hidden;
 }
 
-button,
-a {
-  touch-action: manipulation;
+.section-card::before,
+.item-card::before,
+.card-shimmer::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(16, 185, 129, 0.16), transparent 58%),
+    radial-gradient(circle at 50% 100%, rgba(20, 184, 166, 0.10), transparent 62%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
 }
 
-/* Thin scrollbar for sidebar panels */
-.thin-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: #d1d5db transparent;
+.section-card::after,
+.item-card::after,
+.card-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    108deg,
+    transparent 28%,
+    rgba(16, 185, 129, 0.00) 40%,
+    rgba(16, 185, 129, 0.10) 49%,
+    rgba(45, 212, 191, 0.08) 53%,
+    rgba(16, 185, 129, 0.00) 62%,
+    transparent 72%
+  );
+  transform: translateX(-130%);
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 10;
 }
-.dark .thin-scroll {
-  scrollbar-color: #374151 transparent;
+
+.section-card:hover::before,
+.item-card:hover::before,
+.card-shimmer:hover::before {
+  opacity: 1;
+  animation: greenPulse 2.4s ease-in-out infinite;
 }
-.thin-scroll::-webkit-scrollbar {
-  width: 4px;
+
+.section-card:hover::after,
+.item-card:hover::after,
+.card-shimmer:hover::after {
+  animation: greenShimmer 1.8s cubic-bezier(0.35, 0, 0.2, 1) forwards;
 }
-.thin-scroll::-webkit-scrollbar-thumb {
-  border-radius: 2px;
-  background-color: #d1d5db;
+
+@keyframes greenShimmer {
+  from { transform: translateX(-130%); }
+  to   { transform: translateX(130%); }
 }
-.dark .thin-scroll::-webkit-scrollbar-thumb {
-  background-color: #374151;
+
+@keyframes greenPulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   SECTION CARD  (outer container — used by every admin panel section)
+   ────────────────────────────────────────────────────────────────── */
+.section-card {
+  background:    var(--card-bg);
+  border:        1px solid var(--card-border);
+  box-shadow:    var(--card-shadow);
+  border-radius: 1rem;
+  padding:       1.25rem;
+  backdrop-filter: blur(8px);
+  transition:    border-color 0.25s, box-shadow 0.25s, transform 0.25s cubic-bezier(.22,.68,0,1.1);
+  transform:     translateZ(0);
+  will-change:   transform;
+}
+.section-card:hover {
+  border-color: rgba(16,185,129,0.34);
+  box-shadow:   var(--card-shadow), 0 0 30px rgba(16,185,129,0.13);
+  transform:    translateY(-1px);
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   ITEM CARD  (inner row / tile)
+   ────────────────────────────────────────────────────────────────── */
+.item-card {
+  background:    var(--card-bg-inner);
+  border:        1px solid var(--card-border);
+  border-radius: 0.75rem;
+  padding:       0.75rem;
+  transition:    border-color 0.2s, box-shadow 0.2s, transform 0.25s cubic-bezier(.22,.68,0,1.2);
+  transform:     translateZ(0);
+  will-change:   transform;
+}
+.item-card:hover {
+  border-color: rgba(16,185,129,0.46);
+  transform:    translateY(-3px) scale(1.018);
+  animation:    itemCardGlow 2s ease-in-out infinite;
+}
+
+@keyframes itemCardGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(16,185,129,0.20), 0 6px 24px rgba(16,185,129,0.10); }
+  50%       { box-shadow: 0 0 0 1px rgba(16,185,129,0.42), 0 8px 32px rgba(16,185,129,0.20); }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   SEARCH BOX  — focus glow + top shimmer bar
+   ────────────────────────────────────────────────────────────────── */
+.search-glow {
+  position: relative;
+  transition: box-shadow 0.35s ease, border-color 0.35s ease;
+}
+.search-glow:focus-within {
+  border-color: rgba(16, 185, 129, 0.55) !important;
+  box-shadow:
+    0 0 0 4px rgba(16, 185, 129, 0.12),
+    0 12px 40px rgba(16, 185, 129, 0.14);
+}
+.dark .search-glow:focus-within {
+  border-color: rgba(16, 185, 129, 0.45) !important;
+  box-shadow:
+    0 0 0 4px rgba(16, 185, 129, 0.10),
+    0 12px 40px rgba(16, 185, 129, 0.12);
+}
+
+.search-shimmer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(16,185,129,0.6) 20%,
+    rgba(52,211,153,1.0) 50%,
+    rgba(16,185,129,0.6) 80%,
+    transparent 100%
+  );
+  border-radius: 16px 16px 0 0;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+.search-glow:focus-within .search-shimmer {
+  opacity: 1;
+  animation: searchShimmerPulse 2s ease-in-out infinite;
+}
+@keyframes searchShimmerPulse {
+  0%, 100% { opacity: 0.6; transform: scaleX(0.88); }
+  50%       { opacity: 1;   transform: scaleX(1); }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   LOGIN PANEL
+   ────────────────────────────────────────────────────────────────── */
+.login-stage {
+  background:
+    radial-gradient(circle at 22% 18%, rgba(16, 185, 129, 0.13), transparent 34%),
+    radial-gradient(circle at 76% 82%, rgba(20, 184, 166, 0.12), transparent 36%),
+    linear-gradient(135deg, #020617 0%, #08111f 48%, #020617 100%);
+}
+
+.login-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background:
+    linear-gradient(135deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.88)),
+    radial-gradient(circle at top left, rgba(16, 185, 129, 0.14), transparent 36%);
+  box-shadow:
+    0 22px 80px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transform: translateZ(0);
+  transition:
+    border-color 0.28s ease,
+    box-shadow 0.28s ease,
+    transform 0.28s cubic-bezier(.22,.68,0,1.12);
+}
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.18), transparent 34%),
+    radial-gradient(circle at 45% 40%, rgba(45, 212, 191, 0.10), transparent 42%);
+  opacity: 0;
+  filter: blur(18px);
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  animation: loginGlowDrift 7s ease-in-out infinite;
+}
+
+.login-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    108deg,
+    transparent 28%,
+    rgba(16, 185, 129, 0) 42%,
+    rgba(16, 185, 129, 0.14) 50%,
+    rgba(45, 212, 191, 0.08) 55%,
+    rgba(16, 185, 129, 0) 64%,
+    transparent 76%
+  );
+  transform: translateX(-135%);
+  pointer-events: none;
+}
+
+.login-card:hover {
+  border-color: rgba(16, 185, 129, 0.48);
+  box-shadow:
+    0 24px 90px rgba(0, 0, 0, 0.48),
+    0 0 0 1px rgba(16, 185, 129, 0.12),
+    0 0 42px rgba(16, 185, 129, 0.18);
+  transform: translateY(-3px) scale(1.012);
+}
+
+.login-card:hover::before {
+  opacity: 1;
+}
+
+.login-card:hover::after {
+  animation: greenShimmer 1.85s cubic-bezier(0.35, 0, 0.2, 1) forwards;
+}
+
+.login-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.login-input {
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.92), rgba(17, 24, 39, 0.92));
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.login-input:hover {
+  border-color: rgba(16, 185, 129, 0.34);
+}
+
+.login-input:focus {
+  border-color: rgba(16, 185, 129, 0.76);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
+}
+
+.login-primary {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #059669, #10b981 48%, #0d9488);
+  box-shadow: 0 12px 30px rgba(16, 185, 129, 0.24);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, filter 0.22s ease;
+}
+
+.login-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(108deg, transparent 18%, rgba(255,255,255,0.18) 48%, transparent 72%);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+
+.login-primary:hover {
+  filter: brightness(1.04);
+  transform: translateY(-1px) scale(1.006);
+  box-shadow: 0 16px 40px rgba(16, 185, 129, 0.34);
+}
+
+.login-primary:hover::after {
+  animation: greenShimmer 1.5s cubic-bezier(0.35, 0, 0.2, 1) forwards;
+}
+
+@keyframes loginGlowDrift {
+  0%, 100% { transform: translate(-4%, -4%) scale(1); }
+  50%      { transform: translate(4%, 4%) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-card:hover::before,
+  .item-card:hover::before,
+  .card-shimmer:hover::before,
+  .section-card:hover::after,
+  .item-card:hover::after,
+  .card-shimmer:hover::after,
+  .login-card::before,
+  .login-card:hover::after,
+  .login-primary:hover::after {
+    animation: none;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   SUBTLE AMBIENT BLOBS  (kept but toned down)
+   ────────────────────────────────────────────────────────────────── */
+body::before, body::after {
+  content: "";
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.35;
+  animation: ambientWander 30s infinite alternate ease-in-out;
+}
+body::before {
+  background: radial-gradient(circle at 20% 30%, rgba(45,212,191,0.18) 0%, transparent 55%);
+  animation-delay: -5s;
+}
+body::after {
+  background: radial-gradient(circle at 80% 70%, rgba(139,92,246,0.15) 0%, transparent 55%);
+  animation-delay: -15s;
+  animation-duration: 35s;
+}
+.dark body::before { opacity: 0.25; }
+.dark body::after  { opacity: 0.22; }
+
+@keyframes ambientWander {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(4vw, -4vh) scale(1.08); }
+  100% { transform: translate(-3vw, 6vh) scale(1.12); }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   SCROLLBARS
+   ────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 5px; height: 5px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(20,184,166,0.3); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(20,184,166,0.7); }
+
+.thin-scroll { scrollbar-width: thin; scrollbar-color: #d1d5db transparent; }
+.dark .thin-scroll { scrollbar-color: #374151 transparent; }
+.thin-scroll::-webkit-scrollbar { width: 4px; }
+.thin-scroll::-webkit-scrollbar-thumb { border-radius: 2px; background-color: #d1d5db; }
+.dark .thin-scroll::-webkit-scrollbar-thumb { background-color: #374151; }
+
+.glow-scroll { scrollbar-width: thin; scrollbar-color: #14b8a6 transparent; }
+.glow-scroll::-webkit-scrollbar { width: 4px; }
+.glow-scroll::-webkit-scrollbar-track { background: transparent; }
+.glow-scroll::-webkit-scrollbar-thumb {
+  background: #14b8a6; border-radius: 9999px;
+  box-shadow: 0 0 6px #14b8a6, 0 0 14px rgba(20,184,166,.6);
+}
+.glow-scroll::-webkit-scrollbar-thumb:hover {
+  background: #0d9488;
+  box-shadow: 0 0 8px #14b8a6, 0 0 18px #14b8a6, 0 0 28px rgba(20,184,166,.5);
+}
+
+.cat-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.35) transparent; }
+.cat-scroll::-webkit-scrollbar { height: 3px; }
+.cat-scroll::-webkit-scrollbar-track { background: transparent; }
+.cat-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.4); border-radius: 9999px;
+}
+.cat-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.65); }
+
+/* ──────────────────────────────────────────────────────────────────
+   MISC UTILITIES
+   ────────────────────────────────────────────────────────────────── */
+* { min-width: 0; }
+body { overflow-x: hidden; }
+img, video, canvas, svg { max-width: 100%; }
+input, textarea { overflow-wrap: anywhere; }
+button, a, select { word-break: normal; }
+button, a { touch-action: manipulation; }
+.prose pre, .prose table { overflow-x: auto; }
+.prose table { display: block; width: 100%; }
+[dir="rtl"] .prose blockquote {
+  border-left-width: 0; border-right-width: 0.25rem;
+  padding-left: 0; padding-right: 1rem;
+}
+
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(20,184,166,.5);
+}
+
+main { position: relative; z-index: 1; }
+
+tbody tr { transition: background 0.2s ease; }

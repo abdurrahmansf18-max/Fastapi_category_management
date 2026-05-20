@@ -28,6 +28,28 @@ class VerifyEmailOut(BaseModel):
     message: str
     tenant_slug: str
 
+class AuthLoginIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=200)
+
+class WorkspaceOption(BaseModel):
+    tenant_id: UUID
+    tenant_slug: str
+    workspace_name: str
+    role: str
+
+class AuthLoginOut(BaseModel):
+    message: str
+    selection_token: str
+    workspaces: list[WorkspaceOption]
+
+class WorkspaceSelectIn(BaseModel):
+    selection_token: str = Field(min_length=20)
+    tenant_slug: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", min_length=2, max_length=63)
+
+class WorkspaceSelectOut(TokenOut):
+    tenant_slug: str
+
 class AdminInitIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=200)
@@ -46,16 +68,18 @@ class AdminPasswordIn(BaseModel):
 
 # ---- Category ----
 class CategoryBase(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=60)
+    description: Optional[str] = Field(default=None, max_length=200)
+    seo_description: Optional[str] = Field(default=None, max_length=320)
     sort_order: Optional[int] = 0  # CREATE için default
 
 class CategoryCreate(CategoryBase):
-    name: str
+    name: str = Field(min_length=1, max_length=60)
 
 class CategoryUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    seo_description: Optional[str] = None
     sort_order: Optional[int] = None  # UPDATE'te None
 
 class CategoryOut(BaseModel):
@@ -63,6 +87,7 @@ class CategoryOut(BaseModel):
     name: str
     slug: str
     description: Optional[str]
+    seo_description: Optional[str]
     sort_order: int
     created_at: datetime
     updated_at: datetime
@@ -72,13 +97,14 @@ class HeadingBase(BaseModel):
     level: Optional[int] = None  # 1 or 2
     category_id: Optional[uuid.UUID] = None
     parent_heading_id: Optional[uuid.UUID] = None
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=80)
+    description: Optional[str] = Field(default=None, max_length=200)
+    seo_description: Optional[str] = Field(default=None, max_length=320)
     sort_order: Optional[int] = 0
 
 class HeadingCreate(HeadingBase):
     level: int
-    title: str
+    title: str = Field(min_length=1, max_length=80)
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -99,6 +125,7 @@ class HeadingCreate(HeadingBase):
 class HeadingUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    seo_description: Optional[str] = None
     sort_order: Optional[int] = None  # UPDATE'te None
 
 class HeadingOut(BaseModel):
@@ -109,6 +136,7 @@ class HeadingOut(BaseModel):
     title: str
     slug: str
     description: Optional[str]
+    seo_description: Optional[str]
     sort_order: int
     created_at: datetime
     updated_at: datetime
@@ -117,7 +145,7 @@ class HeadingOut(BaseModel):
 class ContentBase(BaseModel):
     heading_id: Optional[uuid.UUID] = None
     body: Optional[str] = None
-    description: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=320)
     status: Optional[str] = Field(default="published", pattern="^(draft|published)$")
 
 class ContentCreate(ContentBase):
@@ -173,6 +201,42 @@ class ContentImageOut(BaseModel):
     updated_at: datetime
 
 
+class ContentAttachmentBase(BaseModel):
+    url: Optional[str] = None
+    label: Optional[str] = Field(default="", max_length=120)
+    file_name: Optional[str] = Field(default="attachment", max_length=255)
+    mime_type: Optional[str] = Field(default="application/octet-stream", max_length=120)
+    size_bytes: Optional[int] = Field(default=0, ge=0)
+    sort_order: Optional[int] = 0
+
+
+class ContentAttachmentCreate(ContentAttachmentBase):
+    content_id: uuid.UUID
+    url: str
+
+
+class ContentAttachmentUpdate(BaseModel):
+    url: Optional[str] = None
+    label: Optional[str] = Field(default=None, max_length=120)
+    file_name: Optional[str] = Field(default=None, max_length=255)
+    mime_type: Optional[str] = Field(default=None, max_length=120)
+    size_bytes: Optional[int] = Field(default=None, ge=0)
+    sort_order: Optional[int] = None
+
+
+class ContentAttachmentOut(BaseModel):
+    id: uuid.UUID
+    content_id: uuid.UUID
+    url: str
+    label: str
+    file_name: str
+    mime_type: str
+    size_bytes: int
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+
 # ---- Public/View ----
 class ContentPublic(BaseModel):
     id: UUID
@@ -199,6 +263,7 @@ class PageOut(BaseModel):
     h2: str
     title: str
     body: str
+    description: Optional[str] = None
 
 from pydantic import Field as PydField
 
@@ -223,6 +288,38 @@ class SearchResponse(BaseModel):
     results: List[SearchResult]
     query: str
     total_count: int
+
+
+class RedirectRuleBase(BaseModel):
+    source_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
+    target_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
+    status_code: Optional[int] = Field(default=301, ge=301, le=308)
+    is_active: Optional[bool] = True
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
+class RedirectRuleCreate(RedirectRuleBase):
+    source_path: str = Field(min_length=1, max_length=400, pattern=r"^/.*")
+    target_path: str = Field(min_length=1, max_length=400, pattern=r"^/.*")
+
+
+class RedirectRuleUpdate(BaseModel):
+    source_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
+    target_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
+    status_code: Optional[int] = Field(default=None, ge=301, le=308)
+    is_active: Optional[bool] = None
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
+class RedirectRuleOut(BaseModel):
+    id: uuid.UUID
+    source_path: str
+    target_path: str
+    status_code: int
+    is_active: bool
+    note: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 # ---- Site Settings ----
 class SiteSettings(BaseModel):
     site_title: str

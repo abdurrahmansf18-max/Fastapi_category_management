@@ -16,6 +16,7 @@ def request_metadata(request: Request | None) -> dict[str, Any]:
         "user_agent": request.headers.get("user-agent"),
         "path": request.url.path,
         "method": request.method,
+        "request_id": getattr(request.state, "request_id", None),
     }
 
 

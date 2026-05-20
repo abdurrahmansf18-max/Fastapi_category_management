@@ -21,6 +21,10 @@ jobs:
         run: python -m pip install -r backend/requirements.txt
       - name: Compile backend
         run: python -m compileall backend
+      - name: Check DDL snapshot drift
+        env:
+          PYTHONPATH: backend
+        run: python backend/scripts/generate_schema_sql.py --check
       - name: Run backend tests
         env:
           PYTHONPATH: backend

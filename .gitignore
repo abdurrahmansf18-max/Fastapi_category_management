@@ -44,3 +44,6 @@ backend/uploads/
 screenshots/
 frontend/test-results/
 frontend/playwright-report/
+cookies.txt
+*.bak
+*.bak.css

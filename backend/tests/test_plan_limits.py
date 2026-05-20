@@ -2,13 +2,13 @@ from app.db.provisioning import FREE_PLAN_LIMITS, PRO_PLAN_LIMITS
 
 
 def test_free_plan_is_intentionally_restrictive():
-    assert FREE_PLAN_LIMITS["max_admins"] == 1
-    assert FREE_PLAN_LIMITS["max_categories"] == 3
-    assert FREE_PLAN_LIMITS["max_headings"] == 20
-    assert FREE_PLAN_LIMITS["max_contents"] == 20
-    assert FREE_PLAN_LIMITS["max_upload_bytes"] == 20 * 1024 * 1024
-    assert FREE_PLAN_LIMITS["max_seo_pages"] == 25
-    assert FREE_PLAN_LIMITS["ai_monthly_limit"] == 5
+    assert FREE_PLAN_LIMITS["max_admins"] == 2
+    assert FREE_PLAN_LIMITS["max_categories"] == 20
+    assert FREE_PLAN_LIMITS["max_headings"] == 800
+    assert FREE_PLAN_LIMITS["max_contents"] == 800
+    assert FREE_PLAN_LIMITS["max_upload_bytes"] == 1024 * 1024 * 1024
+    assert FREE_PLAN_LIMITS["max_seo_pages"] == 800
+    assert FREE_PLAN_LIMITS["ai_monthly_limit"] == 0
 
 
 def test_pro_plan_remains_substantially_higher_than_free():

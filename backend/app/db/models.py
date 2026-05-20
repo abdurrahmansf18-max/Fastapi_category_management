@@ -1,7 +1,7 @@
 # app/db/models.py
 from sqlalchemy import (
     MetaData, Table, Column, CheckConstraint, ForeignKey,
-    Text, Integer, SmallInteger
+    Text, Integer, SmallInteger, BigInteger, Boolean
 )
 from sqlalchemy.dialects.postgresql import UUID, CITEXT, TIMESTAMP
 from sqlalchemy.sql import func, text
@@ -30,6 +30,7 @@ category = Table(
            server_default=text("gen_random_uuid()")),
     Column("name", CITEXT, nullable=False, unique=True),
     Column("description", Text),
+    Column("seo_description", Text),
     Column("slug", Text, nullable=False),
     Column("sort_order", Integer, nullable=False, server_default=text("0")),
     Column("created_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
@@ -47,6 +48,7 @@ heading = Table(
     Column("level", SmallInteger, nullable=False),
     Column("title", CITEXT, nullable=False),
     Column("description", Text),
+    Column("seo_description", Text),
     Column("slug", Text, nullable=False),
     Column("sort_order", Integer, nullable=False, server_default=text("0")),
     Column("created_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
@@ -88,6 +90,38 @@ content_image = Table(
     Column("created_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
     Column("updated_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
     CheckConstraint("btrim(url) <> '' AND url ~ '^(https?://|/|s3://)'", name="content_image_url_ck"),
+)
+
+content_attachment = Table(
+    "content_attachment", metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True,
+           server_default=text("gen_random_uuid()")),
+    Column("content_id", UUID(as_uuid=True), ForeignKey("content.id", ondelete="CASCADE"), nullable=False),
+    Column("label", Text, nullable=False, server_default=text("''")),
+    Column("file_name", Text, nullable=False, server_default=text("'attachment'")),
+    Column("mime_type", Text, nullable=False, server_default=text("'application/octet-stream'")),
+    Column("size_bytes", BigInteger, nullable=False, server_default=text("0")),
+    Column("url", Text, nullable=False),
+    Column("sort_order", Integer, nullable=False, server_default=text("0")),
+    Column("created_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("btrim(url) <> '' AND url ~ '^(https?://|/|s3://)'", name="content_attachment_url_ck"),
+)
+
+redirect_rule = Table(
+    "redirect_rule", metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True,
+           server_default=text("gen_random_uuid()")),
+    Column("source_path", Text, nullable=False, unique=True),
+    Column("target_path", Text, nullable=False),
+    Column("status_code", SmallInteger, nullable=False, server_default=text("301")),
+    Column("is_active", Boolean, nullable=False, server_default=text("true")),
+    Column("note", Text),
+    Column("created_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
+    Column("updated_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
+    CheckConstraint("source_path ~ '^/'", name="redirect_source_path_ck"),
+    CheckConstraint("target_path ~ '^/'", name="redirect_target_path_ck"),
+    CheckConstraint("status_code IN (301,302,307,308)", name="redirect_status_code_ck"),
 )
 
 # ==============
@@ -135,6 +169,8 @@ Index(
     content_image.c.content_id, content_image.c.sort_order,
     unique=True
 )
+Index("idx_content_attachment_order", content_attachment.c.content_id, content_attachment.c.sort_order, content_attachment.c.id)
+Index("idx_redirect_rule_active_source", redirect_rule.c.is_active, redirect_rule.c.source_path)
 
 # TRGM arama index'leri (pg_trgm yüklü olmalı)
 Index(
@@ -150,6 +186,12 @@ Index(
     postgresql_ops={category.c.description.key: "gin_trgm_ops"},
 )
 Index(
+    "idx_category_seo_desc_trgm",
+    category.c.seo_description,
+    postgresql_using="gin",
+    postgresql_ops={category.c.seo_description.key: "gin_trgm_ops"},
+)
+Index(
     "idx_heading_title_trgm",
     heading.c.title,
     postgresql_using="gin",
@@ -160,6 +202,12 @@ Index(
     heading.c.description,
     postgresql_using="gin",
     postgresql_ops={heading.c.description.key: "gin_trgm_ops"},
+)
+Index(
+    "idx_heading_seo_desc_trgm",
+    heading.c.seo_description,
+    postgresql_using="gin",
+    postgresql_ops={heading.c.seo_description.key: "gin_trgm_ops"},
 )
 Index(
     "idx_content_body_trgm",

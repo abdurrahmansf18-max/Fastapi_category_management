@@ -7,11 +7,17 @@ import LanguageSwitcher from "../../src/shared/components/LanguageSwitcher";
 
 export default function VerifyEmailApp() {
   const { t } = useTranslation();
+  const [mounted, setMounted] = useState(false);
   const [tenantSlug, setTenantSlug] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     const token = new URLSearchParams(window.location.search).get("token");
     if (!token) {
       setError(t("verification_token_missing"));
@@ -22,7 +28,15 @@ export default function VerifyEmailApp() {
       .then((res) => setTenantSlug(res.tenant_slug))
       .catch((err) => setError(err?.message || t("verification_failed")))
       .finally(() => setLoading(false));
-  }, [t]);
+  }, [mounted]);
+
+  if (!mounted) {
+    return (
+      <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center px-4">
+        <section className="w-full max-w-lg rounded-2xl border border-white/10 bg-gray-900 p-8 shadow-2xl" />
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gray-950 text-white flex items-center justify-center px-4">
@@ -45,7 +59,7 @@ export default function VerifyEmailApp() {
             <h1 className="text-2xl font-bold text-emerald-200">{t("workspace_activated")}</h1>
             <p className="mt-3 text-gray-300">{t("workspace_ready")}</p>
             <div className="mt-6 flex flex-col gap-3">
-              <a className="rounded-xl bg-emerald-600 px-4 py-3 font-semibold hover:bg-emerald-500" href={`/d/${tenantSlug}/admin`}>
+              <a className="rounded-xl bg-emerald-600 px-4 py-3 font-semibold hover:bg-emerald-500" href={`/login?workspace=${encodeURIComponent(tenantSlug)}`}>
                 {t("open_admin_panel")}
               </a>
               <a className="rounded-xl bg-gray-800 px-4 py-3 hover:bg-gray-700" href={`/d/${tenantSlug}`}>

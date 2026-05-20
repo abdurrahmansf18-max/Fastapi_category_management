@@ -6,6 +6,7 @@ export const apiBase =
 export type SiteSettings = {
   site_title?: string;
   site_logo?: string;
+  plan_code?: string;
 };
 
 // Rewrite Docker-internal / localhost backend URLs to browser-accessible proxy paths.

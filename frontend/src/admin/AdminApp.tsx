@@ -7,7 +7,6 @@ import { AlertTriangle, CheckCircle2, Edit3, Globe2, Moon, Sun, X, Zap } from "l
 // frontend/src/admin/App.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import AdminBottomNav from "./components/AdminBottomNav";
-import AdminBillingPanel from "./components/AdminBillingPanel";
 import AdminContentHealth from "./components/AdminContentHealth";
 import AdminSearchInsights from "./components/AdminSearchInsights";
 import AdminUsageBar from "./components/AdminUsageBar";
@@ -20,6 +19,7 @@ import {
   HeadingsApi,
   ContentsApi,
   ContentImagesApi,
+  ContentAttachmentsApi,
   AdminUsageApi,
 } from "../shared/api/admin";
 
@@ -56,11 +56,11 @@ const toUndef = (s: string | null | undefined) => {
 };
 
 import { useSettings } from "../shared/context/SettingsContext";
-import AdminLogin from './views/AdminLogin';
 import CategoriesView from './views/CategoriesView';
 import HeadingsView from './views/HeadingsView';
 import ContentsView from './views/ContentsView';
 import AdminUsersView from './views/AdminUsersView';
+import RedirectsView from "./views/RedirectsView";
 
 export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   const { t } = useTranslation();
@@ -71,24 +71,33 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   }, [tenantSlug]);
 
   // theme
-  const [theme, setTheme] = useState<"light" | "dark">(
-    (typeof window !== "undefined" ? (localStorage.getItem("theme") as any) : null) || "dark"
-  );
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = localStorage.getItem("theme");
+    if (saved === "light" || saved === "dark") {
+      setTheme(saved);
+      return;
+    }
+    const cookieTheme = readCookie("theme");
+    if (cookieTheme === "light" || cookieTheme === "dark") {
+      setTheme(cookieTheme);
+    }
+  }, []);
+
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     localStorage.setItem("theme", theme);
+    document.cookie = `theme=${theme}; path=/; max-age=31536000; SameSite=Lax`;
   }, [theme]);
 
   // auth
   const {
     token,
-    login,
     logout,
     loading: authLoading,
     error: authError,
   } = useAdminAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
 
   // notification
   const [notification, setNotification] = useState<{
@@ -149,7 +158,9 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
         fetchAdmins();
         fetchUsage().catch(() => {});
       })
-      .catch(() => {});
+      .catch(() => {
+        logout();
+      });
   }, [token]);
 
   // -------- CRUD helpers --------
@@ -217,9 +228,13 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
       });
     });
   };
-  async function createCategory(name: string, description?: string) {
+  async function createCategory(name: string, description?: string, seoDescription?: string) {
     try {
-      await CategoriesApi.create({ name, description: toUndef(description) });
+      await CategoriesApi.create({
+        name,
+        description: toUndef(description),
+        seo_description: toUndef(seoDescription),
+      });
       await fetchCats();
       showNotification(t("category_added"), "success");
     } catch (err: any) {
@@ -262,12 +277,24 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   }
 
   // Heading
-  async function createH1(catId: UUID, title: string) {
-    await HeadingsApi.create({ level: 1, category_id: catId, title });
+  async function createH1(catId: UUID, title: string, description?: string, seoDescription?: string) {
+    await HeadingsApi.create({
+      level: 1,
+      category_id: catId,
+      title,
+      description: toUndef(description) || undefined,
+      seo_description: toUndef(seoDescription) || undefined,
+    });
     await fetchH1s(catId);
   }
-  async function createH2(parentId: UUID, title: string) {
-    await HeadingsApi.create({ level: 2, parent_heading_id: parentId, title });
+  async function createH2(parentId: UUID, title: string, description?: string, seoDescription?: string) {
+    await HeadingsApi.create({
+      level: 2,
+      parent_heading_id: parentId,
+      title,
+      description: toUndef(description) || undefined,
+      seo_description: toUndef(seoDescription) || undefined,
+    });
     await fetchH2s(parentId);
   }
   async function updateHeading(id: UUID, fields: any) {
@@ -312,6 +339,7 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
     headingId: UUID,
     body: string,
     images: TempImageData[],
+    attachments: Array<{ file: File; label?: string; sortOrder: number }>,
     description?: string,
     status: "draft" | "published" = "published"
   ) {
@@ -353,14 +381,7 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
               // Rollback content creation
               try {
                 await ContentsApi.remove(newContent.id);
-                showNotification(
-                  `Dosya yükleme hatası: ${
-                    uploadError instanceof Error
-                      ? uploadError.message
-                      : "Bilinmeyen hata"
-                  }`,
-                  "error"
-                );
+                showNotification(t("file_upload_failed"), "error");
               } catch (rollbackError) {
                 console.error("[v0] Rollback error:", rollbackError);
                 showNotification(
@@ -409,10 +430,7 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
             console.error("[v0] Image creation error:", imageError);
             try {
               await ContentsApi.remove(newContent.id);
-              showNotification(
-                "Resim kaydetme hatası nedeniyle işlem iptal edildi!",
-                "error"
-              );
+              showNotification(t("image_save_failed"), "error");
             } catch (rollbackError) {
               console.error("[v0] Rollback error:", rollbackError);
               showNotification(
@@ -428,7 +446,25 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
           t("content_images_added_success", { count: images.length }),
           "success"
         );
-      } else {
+      }
+
+      if (attachments.length > 0) {
+        for (const attachment of attachments) {
+          try {
+            await ContentAttachmentsApi.upload(
+              attachment.file,
+              newContent.id,
+              attachment.label || attachment.file.name,
+              attachment.sortOrder
+            );
+          } catch (uploadError) {
+            console.error("[v0] Attachment upload error:", uploadError);
+            showNotification(t("attachment_add_error"), "warning");
+          }
+        }
+      }
+
+      if (images.length === 0 && attachments.length === 0) {
         showNotification(t("content_added_success"), "success");
       }
 
@@ -516,56 +552,64 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   // LOGIN VIEW with enhanced styling
   if (!token) {
     return (
-      <AdminLogin
-        login={login}
-        authLoading={authLoading}
-        theme={theme}
-        setTheme={setTheme}
-        notification={notification}
-        showNotification={showNotification}
-        clearNotification={() => setNotification(null)}
-      />
+      <div className="flex min-h-screen items-center justify-center px-4">
+        <section className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 text-gray-900 shadow-xl dark:border-gray-800 dark:bg-gray-900 dark:text-white">
+          <h1 className="text-2xl font-bold">{t("central_login_title")}</h1>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{t("central_login_subtitle")}</p>
+          {authError && (
+            <p className="mt-4 rounded-lg bg-rose-100 px-3 py-2 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+              {authError}
+            </p>
+          )}
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <a
+              href={`/login?workspace=${encodeURIComponent(tenantSlug || "")}`}
+              className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+            >
+              {authLoading ? t("loading") : t("login_to_continue")}
+            </a>
+            {tenantSlug && (
+              <a
+                href={`/d/${tenantSlug}`}
+                className="inline-flex min-h-11 flex-1 items-center justify-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-emerald-500 hover:text-emerald-700 dark:border-gray-700 dark:text-gray-300 dark:hover:border-emerald-500 dark:hover:text-emerald-400"
+              >
+                {t("view_public_site")}
+              </a>
+            )}
+          </div>
+        </section>
+      </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100/50 via-white to-gray-200/30 dark:from-gray-950 dark:via-gray-900 dark:to-gray-800/20 pb-20 md:pb-0">
+    <div className="min-h-screen bg-transparent pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-gray-900 dark:text-gray-100 md:pb-0">
       {notification && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div
-            className={`max-w-md w-full mx-4 p-6 rounded-2xl shadow-2xl border animate-[modalIn_.25s_ease-out] ${
+            className={`max-w-md w-full mx-4 p-5 rounded-2xl shadow-2xl border animate-[modalIn_.25s_ease-out] ${
               notification.type === "error"
-                ? "bg-red-50/95 dark:bg-red-950/95 border-red-200 dark:border-red-800 text-red-800 dark:text-red-200"
+                ? "bg-white dark:bg-gray-900 border-red-300 dark:border-red-500/40 text-red-600 dark:text-red-300"
                 : notification.type === "warning"
-                ? "bg-amber-50/95 dark:bg-amber-950/95 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200"
-                : "bg-emerald-50/95 dark:bg-emerald-950/95 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200"
+                ? "bg-white dark:bg-gray-900 border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-300"
+                : "bg-white dark:bg-gray-900 border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
             }`}
-            style={{
-              boxShadow:
-                notification.type === "error"
-                  ? "0 20px 50px rgba(239,68,68,.35)"
-                  : notification.type === "warning"
-                  ? "0 20px 50px rgba(245,158,11,.35)"
-                  : "0 20px 50px rgba(16,185,129,.30)",
-            }}
           >
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {notification.type === "error" ? (
-                <AlertTriangle className="h-6 w-6 shrink-0" />
+                <AlertTriangle className="h-5 w-5 shrink-0" />
               ) : notification.type === "warning" ? (
-                <Zap className="h-6 w-6 shrink-0" />
+                <Zap className="h-5 w-5 shrink-0" />
               ) : (
-                <CheckCircle2 className="h-6 w-6 shrink-0" />
+                <CheckCircle2 className="h-5 w-5 shrink-0" />
               )}
-              <p className="font-medium text-base flex-1">
-                {notification.message}
-              </p>
+              <p className="font-medium text-sm flex-1">{notification.message}</p>
               <button
                 onClick={() => setNotification(null)}
-                className="ml-2 text-xl hover:opacity-70 transition-opacity"
+                className="ml-1 opacity-60 hover:opacity-100 transition-opacity"
                 aria-label={t("close")}
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -666,109 +710,85 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
         </div>
       )}
 
-      <header className="sticky top-0 z-40 bg-gray-900/95 backdrop-blur-xl border-b border-emerald-600/30">
-        <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-emerald-600/70 to-transparent" />
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4 group">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-3xl blur-xl bg-emerald-600/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <div className="relative inline-flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl bg-gradient-to-br from-emerald-700 to-emerald-800 ring-2 ring-emerald-600/40 shadow-xl group-hover:scale-105 group-hover:rotate-3 transition-all duration-300 overflow-hidden">
-                {siteLogo ? (
-                  <img src={siteLogo} alt="Site Logo" className="w-full h-full object-cover" />
-                ) : (
-                  <svg viewBox="0 0 48 48" className="w-8 h-8">
-                    <path
-                      d="M8 30c6-5 13-8 20-8l6 4c-7 0-12 2-18 7l-8-3zM20 14l6-3 12 8-7-1c-4-3-7-4-11-4z"
-                      fill="white"
-                    />
-                  </svg>
-                )}
-              </div>
+      <header
+        className={`sticky z-40 border-b border-gray-200 bg-white/95 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-900/95 ${
+          impersonationWarning ? "top-10" : "top-0"
+        }`}
+      >
+        <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-2 px-4 py-2 sm:gap-4 sm:px-6">
+          {/* Left: logo + title */}
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex-shrink-0 h-9 w-9 rounded-xl overflow-hidden bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-lg">
+              {siteLogo ? (
+                <img src={siteLogo} alt="logo" className="w-full h-full object-cover" />
+              ) : (
+                <svg viewBox="0 0 32 32" className="w-5 h-5"><path d="M5 20c4-3 9-5 13-5l4 3c-5 0-8 1-12 4l-5-2zM13 9l4-2 8 5-5-1c-3-2-5-2-7-2z" fill="white" /></svg>
+              )}
             </div>
-
-            <div className="flex items-center gap-3">
-              <div className="min-w-0">
-                <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2 truncate">
-                  {siteTitle}
-                </h1>
-                <p className="text-xs text-emerald-300 -mt-0.5 font-medium">
-                  {t("admin_dashboard")}
-                </p>
-              </div>
-              <button
-                onClick={async () => {
-                  const newTitle = await showPrompt(t('site_title_prompt'), siteTitle);
-                  if (newTitle && newTitle !== siteTitle) {
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-bold leading-none text-gray-900 dark:text-white sm:text-base">{siteTitle}</h1>
+              <p className="mt-0.5 hidden text-[11px] font-medium text-emerald-600 dark:text-emerald-400 sm:block">{t("admin_dashboard")}</p>
+            </div>
+            <button
+              onClick={async () => {
+                const newTitle = await showPrompt(t('site_title_prompt'), siteTitle);
+                if (newTitle && newTitle !== siteTitle) {
+                  try {
+                    await AdminSettingsApi.updateSettings({ site_title: newTitle });
+                    reloadSettings();
+                    showNotification(t('site_title_success'), 'success');
+                  } catch {
+                    showNotification(t('site_title_error'), 'error');
+                  }
+                }
+                const uploadLogo = await showPrompt(t('upload_logo_prompt'), 'yes', t('upload_logo_desc'));
+                if (uploadLogo?.toLowerCase() === 'yes') {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'image/*';
+                  input.onchange = async (e: any) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const formData = new FormData();
+                    formData.append('file', file);
                     try {
-                      await AdminSettingsApi.updateSettings({ site_title: newTitle });
+                      await AdminSettingsApi.uploadSiteLogo(formData);
                       reloadSettings();
-                      showNotification(t('site_title_success'), 'success');
-                    } catch (e) {
-                      showNotification(t('site_title_error'), 'error');
+                      showNotification(t('site_logo_success'), 'success');
+                    } catch {
+                      showNotification(t('site_logo_error'), 'error');
                     }
-                  }
-                  
-                  const uploadLogo = await showPrompt(t('upload_logo_prompt'), 'yes', t('upload_logo_desc'));
-                  if (uploadLogo?.toLowerCase() === 'yes') {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = 'image/*';
-                    input.onchange = async (e: any) => {
-                      const file = e.target.files[0];
-                      if (!file) return;
-                      const formData = new FormData();
-                      formData.append('file', file);
-                      try {
-                        await AdminSettingsApi.uploadSiteLogo(formData);
-                        reloadSettings();
-                        showNotification(t('site_logo_success'), 'success');
-                      } catch (err) {
-                        showNotification(t('site_logo_error'), 'error');
-                      }
-                    };
-                    input.click();
-                  }
-                }}
-                className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-emerald-300 hover:text-white transition-colors"
-                title={t('edit_site_title_logo')}
-              >
-                <Edit3 className="h-4 w-4" />
-              </button>
-            </div>
+                  };
+                  input.click();
+                }
+              }}
+              className="hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-800 dark:bg-white/5 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white sm:flex"
+              title={t('edit_site_title_logo')}
+            >
+              <Edit3 className="h-3.5 w-3.5" />
+            </button>
           </div>
 
-          <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 md:w-auto md:gap-4">
+          {/* Right: actions */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <a
               href={`/d/${tenantSlug}`}
-              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-center text-sm font-bold text-white md:flex-none sm:px-6
-                         ring-2 ring-emerald-500/60 hover:ring-emerald-400
-                         bg-emerald-600/30 hover:bg-emerald-600/40
-                         shadow-lg hover:shadow-emerald-600/40
-                         hover:scale-105 transition-all duration-300"
+              className="inline-flex h-8 w-8 sm:w-auto items-center justify-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-600/20 dark:hover:bg-emerald-600/30 border border-emerald-200 dark:border-emerald-500/30 px-0 sm:px-3 text-xs font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors"
             >
-              <Globe2 className="h-4 w-4" />
-              {t('public_site')}
+              <Globe2 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t('public_site')}</span>
             </a>
-
-            <LanguageSwitcher />
+            <LanguageSwitcher compact />
             <button
               onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-              className="min-h-11 px-4 sm:px-6 py-3 rounded-2xl text-sm font-bold text-white
-                         bg-gradient-to-r from-emerald-700 to-emerald-600
-                         shadow-lg hover:shadow-xl hover:shadow-emerald-600/50
-                         hover:scale-105 transition-all duration-300"
+              className="h-8 w-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-white transition-colors"
               aria-label={theme === "dark" ? t("dark_mode") : t("light_mode")}
             >
               {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             </button>
-
             <button
               onClick={logout}
-              className="min-h-11 px-4 sm:px-6 py-3 rounded-2xl text-sm font-bold text-white
-                         ring-2 ring-white/20 hover:ring-rose-400/60 
-                         bg-white/10 hover:bg-rose-500/20
-                         hover:text-rose-200 hover:scale-105 transition-all duration-300"
+              className="h-8 rounded-lg border border-gray-300 bg-transparent px-2 text-[11px] font-semibold text-gray-600 transition-colors hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 dark:border-white/10 dark:bg-white/5 dark:text-gray-400 dark:hover:border-rose-500/40 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 sm:px-3 sm:text-xs"
             >
               {t('logout')}
             </button>
@@ -776,10 +796,8 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8 sm:space-y-10">
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:space-y-8 sm:px-6 sm:py-8 md:pb-8">
         <AdminUsageBar usage={usage} />
-
-        <AdminBillingPanel usage={usage} />
 
         <AdminContentHealth />
 
@@ -852,9 +870,14 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
             showNotification={showNotification}
           />
         </section>
+
+        {/* REDIRECT RULES */}
+        <section id="admin-redirects" className="scroll-mt-32">
+          <RedirectsView showNotification={showNotification} />
+        </section>
       </main>
 
-      <AdminBottomNav />
+      <AdminBottomNav tenantSlug={tenantSlug} />
     </div>
   );
 }
