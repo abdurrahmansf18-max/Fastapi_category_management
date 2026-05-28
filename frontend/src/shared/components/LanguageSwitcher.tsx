@@ -1,42 +1,75 @@
-import { useTranslation } from "react-i18next";
+"use client";
 
-export default function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
+import { useTranslation } from "react-i18next";
+import { Globe } from "lucide-react";
+
+const LANGS = [
+  { code: "tr", label: "TR" },
+  { code: "en", label: "EN" },
+  { code: "ar", label: "AR" },
+];
+
+interface LanguageSwitcherProps {
+  compact?: boolean;
+  /** "default" → light/dark aware pill. "glass" → beyaz cam (koyu arka plan için). */
+  variant?: "default" | "glass";
+}
+
+export default function LanguageSwitcher({
+  compact = false,
+  variant = "default",
+}: LanguageSwitcherProps) {
   const { i18n } = useTranslation();
 
-  const changeLanguage = (lng: string) => {
-    if (typeof document !== "undefined") {
-      document.cookie = `NEXT_LOCALE=${lng}; path=/; max-age=31536000; SameSite=Lax`;
-    }
+  function changeLanguage(lng: string) {
     i18n.changeLanguage(lng);
-  };
+    try {
+      localStorage.setItem("appLanguage", lng);
+      document.cookie = `NEXT_LOCALE=${lng}; path=/; max-age=31536000; SameSite=Lax`;
+    } catch {}
+  }
 
-  const currentLang = i18n.language?.split('-')[0] || "en";
+  const current = i18n.language?.split("-")[0] || "tr";
+
+  if (variant === "glass") {
+    return (
+      <div className="inline-flex items-center gap-0.5 rounded-full border border-white/20 bg-white/10 p-0.5 backdrop-blur-sm">
+        <Globe className="ml-1.5 h-3.5 w-3.5 shrink-0 text-white/50" />
+        {LANGS.map(({ code, label }) => (
+          <button
+            key={code}
+            type="button"
+            onClick={() => changeLanguage(code)}
+            className={`rounded-full px-2.5 py-1 text-xs font-bold transition-all ${
+              current === code
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-white/70 hover:text-white"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <div className="relative group inline-flex items-center">
-      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-gray-500 dark:text-gray-400">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z" />
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.6 9h16.8M3.6 15h16.8M12 3v18" />
-        </svg>
-      </div>
-      <select 
-        value={currentLang}
-        onChange={(e) => changeLanguage(e.target.value)}
-        className={`appearance-none pl-10 pr-8 py-2 text-sm font-medium bg-white/50 hover:bg-white/80 dark:bg-gray-800/50 dark:hover:bg-gray-800/80 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all shadow-sm cursor-pointer ${
-          compact ? "w-[84px] sm:w-[120px]" : "w-[120px]"
-        }`}
-        dir="ltr"
-      >
-        <option value="tr">{compact ? "TR" : "Türkçe (TR)"}</option>
-        <option value="en">{compact ? "EN" : "English (EN)"}</option>
-        <option value="ar">{compact ? "AR" : "العربية (AR)"}</option>
-      </select>
-      <div className="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-gray-500 dark:text-gray-400">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-        </svg>
-      </div>
+    <div className="inline-flex items-center gap-0.5 rounded-full border border-gray-200 bg-gray-100/80 p-0.5 dark:border-gray-700/80 dark:bg-gray-800/80">
+      <Globe className="ml-1.5 h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+      {LANGS.map(({ code, label }) => (
+        <button
+          key={code}
+          type="button"
+          onClick={() => changeLanguage(code)}
+          className={`rounded-full px-2.5 py-1 text-xs font-bold transition-all ${
+            current === code
+              ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white"
+              : "text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

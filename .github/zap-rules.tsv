@@ -1,0 +1,15 @@
+# ZAP Kural Dosyası — uyarıları WARN/IGNORE/FAIL olarak yapılandır
+# Format: ID	ACTION	PARAMETER	EVIDENCE	CONFIDENCE	RISK	OTHERINFO	METHOD	URL
+#
+# ACTION: WARN (varsayılan), IGNORE, FAIL
+#
+# Bilgilendirme niteliğindeki uyarılar — false positive olarak işaretle
+10021	IGNORE	(Bilgi Sızıntısı: Web-Browser Önbellek Kontrolü)
+10094	IGNORE	(Base64 Disclosure)
+10027	IGNORE	(Bilgi Sızıntısı: Şüpheli XML/HTML Yorumu)
+# Modern tarayıcılarda desteklenmiyor — geçerli Caddy header'ları var
+10049	IGNORE	(Storable ve Cacheable Content)
+# CSP unsafe-inline bilinen bir kısıtlama — ayrı issue olarak takip ediliyor
+10055	WARN	(CSP Skaner)
+# Kendi auth sistemi var
+10098	IGNORE	(Cross-Domain Misconfiguration)

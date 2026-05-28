@@ -1,11 +1,14 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 .env
 .env.production
 .env.local
 docker-compose.local.yml
+.pytest_cache/
+**/.pytest_cache/
 .venv
 venv/
 ENV/
@@ -18,6 +21,8 @@ dist-ssr/
 build/
 .next/
 .next-dev*.log
+frontend/.next-dev*.log
+*.tsbuildinfo
 .npm
 npm-debug.log*
 yarn-debug.log*
@@ -47,3 +52,7 @@ frontend/playwright-report/
 cookies.txt
 *.bak
 *.bak.css
+backend/celerybeat-schedule
+
+testsprite_tests\tmp\config.json
+testsprite_tests/tmp/config.json

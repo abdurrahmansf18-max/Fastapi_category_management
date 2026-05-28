@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Paperclip, Trash2, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ContentAttachmentsApi } from "../../shared/api/admin";
+import { localizeBackendError } from "../../shared/utils/localizeError";
 import type { ContentAttachment, UUID } from "../../shared/types/models";
 
 interface ContentAttachmentManagerProps {
@@ -63,7 +64,7 @@ export default function ContentAttachmentManager({
       await fetchAttachments();
       onNotification(t("attachment_added"), "success");
     } catch (error: any) {
-      onNotification(error?.message || t("attachment_add_error"), "error");
+      onNotification(localizeBackendError(error?.message, t) || t("attachment_add_error"), "error");
     } finally {
       setUploading(false);
     }

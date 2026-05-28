@@ -3,17 +3,19 @@ from __future__ import annotations
 import re
 
 from sqlalchemy import text
+from sqlalchemy.schema import CreateSchema
 
-from app.db.session import engine, quote_ident
+from app.db.session import apply_search_path, engine
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_SCHEMA_NAME_RE = re.compile(r"^tenant_[a-z0-9]+(?:_[a-z0-9]+)*$")
 
 FREE_PLAN_LIMITS = {
     "max_admins": 2,
     "max_categories": 20,
     "max_headings": 800,
     "max_contents": 800,
-    "max_upload_bytes": 1 * 1024 * 1024 * 1024,
+    "max_upload_bytes": 50 * 1024 * 1024,  # 50 MB per tenant (images + files combined)
     "max_seo_pages": 800,
     "public_rate_limit": 180,
     "search_rate_limit": 80,
@@ -21,24 +23,17 @@ FREE_PLAN_LIMITS = {
     "ai_monthly_limit": 0,
 }
 
-PRO_PLAN_LIMITS = {
-    "max_admins": 10,
-    "max_categories": 200,
-    "max_headings": 2000,
-    "max_contents": 2000,
-    "max_upload_bytes": 5 * 1024 * 1024 * 1024,
-    "max_seo_pages": 2000,
-    "public_rate_limit": 600,
-    "search_rate_limit": 300,
-    "admin_rate_limit": 600,
-    "ai_monthly_limit": 500,
-}
-
-
 def schema_name_for_slug(slug: str) -> str:
     if not SLUG_RE.fullmatch(slug):
         raise ValueError("Invalid tenant slug")
     return "tenant_" + slug.replace("-", "_")
+
+
+async def drop_tenant_schema(schema_name: str) -> None:
+    if not _SCHEMA_NAME_RE.fullmatch(schema_name):
+        raise ValueError(f"Invalid tenant schema name: {schema_name}")
+    async with engine.begin() as conn:
+        await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
 
 
 PLATFORM_DDL = [
@@ -87,11 +82,6 @@ PLATFORM_DDL = [
       'free', 'Free',
       :free_max_admins, :free_max_categories, :free_max_headings, :free_max_contents, :free_max_upload_bytes,
       :free_max_seo_pages, :free_public_rate_limit, :free_search_rate_limit, :free_admin_rate_limit, :free_ai_monthly_limit
-    ),
-    (
-      'pro', 'Pro',
-      :pro_max_admins, :pro_max_categories, :pro_max_headings, :pro_max_contents, :pro_max_upload_bytes,
-      :pro_max_seo_pages, :pro_public_rate_limit, :pro_search_rate_limit, :pro_admin_rate_limit, :pro_ai_monthly_limit
     )
     ON CONFLICT (code) DO UPDATE SET
       name = EXCLUDED.name,
@@ -118,21 +108,22 @@ PLATFORM_DDL = [
       ('free', 'public_rate_limit', to_jsonb(CAST(:free_public_rate_limit AS int))),
       ('free', 'search_rate_limit', to_jsonb(CAST(:free_search_rate_limit AS int))),
       ('free', 'admin_rate_limit', to_jsonb(CAST(:free_admin_rate_limit AS int))),
-      ('free', 'ai_monthly_limit', to_jsonb(CAST(:free_ai_monthly_limit AS int))),
-      ('pro', 'max_admins', to_jsonb(CAST(:pro_max_admins AS int))),
-      ('pro', 'max_categories', to_jsonb(CAST(:pro_max_categories AS int))),
-      ('pro', 'max_headings', to_jsonb(CAST(:pro_max_headings AS int))),
-      ('pro', 'max_contents', to_jsonb(CAST(:pro_max_contents AS int))),
-      ('pro', 'max_upload_bytes', to_jsonb(CAST(:pro_max_upload_bytes AS bigint))),
-      ('pro', 'max_seo_pages', to_jsonb(CAST(:pro_max_seo_pages AS int))),
-      ('pro', 'public_rate_limit', to_jsonb(CAST(:pro_public_rate_limit AS int))),
-      ('pro', 'search_rate_limit', to_jsonb(CAST(:pro_search_rate_limit AS int))),
-      ('pro', 'admin_rate_limit', to_jsonb(CAST(:pro_admin_rate_limit AS int))),
-      ('pro', 'ai_monthly_limit', to_jsonb(CAST(:pro_ai_monthly_limit AS int)))
+      ('free', 'ai_monthly_limit', to_jsonb(CAST(:free_ai_monthly_limit AS int)))
     ON CONFLICT (plan_code, key) DO UPDATE SET
       entitlement_value = EXCLUDED.entitlement_value,
       updated_at = now()
     """,
+    # --- Migration: move any pro tenants to free and remove pro plan ---
+    """
+    DO $$
+    BEGIN
+      IF to_regclass('public.tenant') IS NOT NULL THEN
+        UPDATE public.tenant SET plan_code = 'free' WHERE plan_code = 'pro';
+      END IF;
+    END $$;
+    """,
+    "DELETE FROM public.plan_entitlement WHERE plan_code = 'pro'",
+    "DELETE FROM public.plan WHERE code = 'pro'",
     """
     CREATE TABLE IF NOT EXISTS public.user_account (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -160,6 +151,7 @@ PLATFORM_DDL = [
     )
     """,
     "ALTER TABLE public.tenant ADD COLUMN IF NOT EXISTS discoverable boolean NOT NULL DEFAULT true",
+    "ALTER TABLE public.user_account ADD COLUMN IF NOT EXISTS last_login_at timestamptz",
     """
     CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_owner_workspace
       ON public.tenant(owner_user_id)
@@ -188,6 +180,17 @@ PLATFORM_DDL = [
       created_at timestamptz NOT NULL DEFAULT now()
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS public.password_reset_token (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid NOT NULL REFERENCES public.user_account(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      expires_at timestamptz NOT NULL,
+      consumed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_password_reset_token_user ON public.password_reset_token(user_id, created_at DESC)",
     """
     CREATE TABLE IF NOT EXISTS public.audit_event (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -246,73 +249,6 @@ PLATFORM_DDL = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_platform_session_active ON public.platform_session(expires_at) WHERE revoked_at IS NULL",
     """
-    CREATE TABLE IF NOT EXISTS public.payment_customer (
-      tenant_id uuid PRIMARY KEY REFERENCES public.tenant(id) ON DELETE CASCADE,
-      provider text NOT NULL DEFAULT 'iyzico',
-      provider_customer_id text NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now(),
-      UNIQUE (provider, provider_customer_id)
-    )
-    """,
-    "ALTER TABLE public.payment_customer ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'iyzico'",
-    "ALTER TABLE public.payment_customer ADD COLUMN IF NOT EXISTS provider_customer_id text",
-    """
-    DO $$
-    DECLARE
-      legacy_customer_column text := 'str' || 'ipe_customer_id';
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'payment_customer'
-          AND column_name = legacy_customer_column
-      ) THEN
-        EXECUTE format(
-          'UPDATE public.payment_customer
-           SET provider = %L,
-               provider_customer_id = COALESCE(provider_customer_id, %I)
-           WHERE provider_customer_id IS NULL',
-          'iyzico',
-          legacy_customer_column
-        );
-        EXECUTE format('ALTER TABLE public.payment_customer DROP COLUMN %I', legacy_customer_column);
-      END IF;
-    END $$;
-    """,
-    "UPDATE public.payment_customer SET provider_customer_id = tenant_id::text WHERE provider_customer_id IS NULL",
-    "ALTER TABLE public.payment_customer ALTER COLUMN provider_customer_id SET NOT NULL",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_customer_provider_customer ON public.payment_customer(provider, provider_customer_id)",
-    """
-    CREATE TABLE IF NOT EXISTS public.subscription (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
-      provider text NOT NULL DEFAULT 'iyzico',
-      provider_subscription_id text NOT NULL UNIQUE,
-      status text NOT NULL,
-      plan_code text NOT NULL REFERENCES public.plan(code),
-      current_period_end timestamptz,
-      cancel_at_period_end boolean NOT NULL DEFAULT false,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-    """,
-    "ALTER TABLE public.subscription ALTER COLUMN provider SET DEFAULT 'iyzico'",
-    "CREATE INDEX IF NOT EXISTS idx_subscription_tenant_status ON public.subscription(tenant_id, status)",
-    """
-    CREATE TABLE IF NOT EXISTS public.billing_event (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      provider text NOT NULL DEFAULT 'iyzico',
-      provider_event_id text NOT NULL UNIQUE,
-      event_type text NOT NULL,
-      tenant_id uuid REFERENCES public.tenant(id) ON DELETE SET NULL,
-      payload jsonb NOT NULL,
-      processed_at timestamptz NOT NULL DEFAULT now()
-    )
-    """,
-    "ALTER TABLE public.billing_event ALTER COLUMN provider SET DEFAULT 'iyzico'",
-    """
     CREATE TABLE IF NOT EXISTS public.usage_counter (
       tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
       key text NOT NULL,
@@ -335,6 +271,20 @@ PLATFORM_DDL = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_search_event_tenant_time ON public.search_event(tenant_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_search_event_tenant_query ON public.search_event(tenant_id, query)",
+    """
+    CREATE TABLE IF NOT EXISTS public.page_view_event (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES public.tenant(id) ON DELETE CASCADE,
+      url text NOT NULL,
+      title text NOT NULL DEFAULT '',
+      content_id uuid,
+      user_agent text,
+      ip inet,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_page_view_event_tenant_time ON public.page_view_event(tenant_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_page_view_event_tenant_url ON public.page_view_event(tenant_id, url)",
     """
     CREATE TABLE IF NOT EXISTS public.feedback_event (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -391,6 +341,23 @@ PLATFORM_DDL = [
     """,
     "INSERT INTO public.platform_setting (key, value) VALUES ('site_name', 'DocSpace') ON CONFLICT DO NOTHING",
     "INSERT INTO public.platform_setting (key, value) VALUES ('site_logo', '') ON CONFLICT DO NOTHING",
+    """
+    CREATE TABLE IF NOT EXISTS public.contact_message (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text NOT NULL DEFAULT '',
+      email citext NOT NULL DEFAULT '',
+      message text NOT NULL,
+      user_agent text,
+      ip inet,
+      read boolean NOT NULL DEFAULT false,
+      archived boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    "ALTER TABLE public.contact_message ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false",
+    "CREATE INDEX IF NOT EXISTS idx_contact_message_created ON public.contact_message(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_contact_message_unread ON public.contact_message(read, created_at DESC) WHERE read = false",
+    "CREATE INDEX IF NOT EXISTS idx_contact_message_archived ON public.contact_message(archived, created_at DESC)",
 ]
 
 
@@ -460,7 +427,7 @@ TENANT_DDL = [
     "ALTER TABLE heading DROP CONSTRAINT IF EXISTS heading_seo_desc_len_ck",
     "ALTER TABLE heading ADD CONSTRAINT heading_seo_desc_len_ck CHECK (seo_description IS NULL OR char_length(seo_description) <= 320)",
     "ALTER TABLE content DROP CONSTRAINT IF EXISTS content_body_min_len_ck",
-    "ALTER TABLE content ADD CONSTRAINT content_body_min_len_ck CHECK (char_length(btrim(body)) >= 120)",
+    "ALTER TABLE content ADD CONSTRAINT content_body_min_len_ck CHECK (char_length(btrim(body)) >= 10)",
     "ALTER TABLE content DROP CONSTRAINT IF EXISTS content_desc_dynamic_len_ck",
     "ALTER TABLE content ADD CONSTRAINT content_desc_dynamic_len_ck CHECK (description IS NULL OR char_length(description) <= LEAST(320, GREATEST(80, floor((char_length(body)::numeric) * 0.20)::int)))",
     """
@@ -505,7 +472,7 @@ TENANT_DDL = [
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       source_path text NOT NULL UNIQUE,
       target_path text NOT NULL,
-      status_code smallint NOT NULL DEFAULT 301 CHECK (status_code IN (301,302,307,308)),
+      status_code smallint NOT NULL DEFAULT 301 CHECK (status_code IN (301,302)),
       is_active boolean NOT NULL DEFAULT true,
       note text,
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -516,6 +483,10 @@ TENANT_DDL = [
     """,
     "ALTER TABLE redirect_rule DROP CONSTRAINT IF EXISTS redirect_note_len_ck",
     "ALTER TABLE redirect_rule ADD CONSTRAINT redirect_note_len_ck CHECK (note IS NULL OR char_length(note) <= 300)",
+    "UPDATE redirect_rule SET status_code = 301 WHERE status_code IN (307, 308)",
+    "UPDATE redirect_rule SET status_code = 302 WHERE status_code = 307",
+    "ALTER TABLE redirect_rule DROP CONSTRAINT IF EXISTS redirect_rule_status_code_check",
+    "ALTER TABLE redirect_rule ADD CONSTRAINT redirect_rule_status_code_check CHECK (status_code IN (301, 302))",
     """
     CREATE TABLE IF NOT EXISTS site_setting (
       key citext PRIMARY KEY,
@@ -556,6 +527,9 @@ TENANT_DDL = [
     DECLARE base text; s text; i int := 2;
     BEGIN
       base := normalize_slug(NEW.name);
+      IF base IS NULL OR base = '' THEN
+        base := 'cat-' || substr(gen_random_uuid()::text, 1, 8);
+      END IF;
       s := base;
       WHILE EXISTS (
         SELECT 1 FROM category c
@@ -575,6 +549,9 @@ TENANT_DDL = [
     DECLARE base text; s text; i int := 2;
     BEGIN
       base := normalize_slug(NEW.title);
+      IF base IS NULL OR base = '' THEN
+        base := 'h-' || substr(gen_random_uuid()::text, 1, 8);
+      END IF;
       s := base;
 
       IF NEW.level = 1 THEN
@@ -731,7 +708,6 @@ TENANT_DDL = [
 async def run_platform_migrations() -> None:
     params = {
         **{f"free_{key}": value for key, value in FREE_PLAN_LIMITS.items()},
-        **{f"pro_{key}": value for key, value in PRO_PLAN_LIMITS.items()},
     }
     # Advisory lock: sadece bir worker migration çalıştırır, diğerleri bekler
     # Lock ID sabit (0x444F4353 = "DOCS") — uygulama genelinde benzersiz
@@ -744,8 +720,8 @@ async def run_platform_migrations() -> None:
 
 async def provision_tenant_schema(schema_name: str, site_title: str | None = None) -> None:
     async with engine.begin() as conn:
-        await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(schema_name)}"))
-        await conn.execute(text(f"SET LOCAL search_path TO {quote_ident(schema_name)}, public"))
+        await conn.execute(CreateSchema(schema_name, if_not_exists=True))
+        await apply_search_path(conn, schema_name)
         for stmt in TENANT_DDL:
             await conn.execute(text(stmt))
         if site_title:
@@ -779,7 +755,7 @@ async def run_tenant_migrations() -> None:
 
     for schema_name, tenant_name in tenants:
         async with engine.begin() as conn:
-            await conn.execute(text(f"SET LOCAL search_path TO {quote_ident(schema_name)}, public"))
+            await apply_search_path(conn, schema_name)
             for stmt in TENANT_DDL:
                 await conn.execute(text(stmt))
             await conn.execute(

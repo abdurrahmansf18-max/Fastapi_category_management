@@ -12,6 +12,7 @@ type Hit = {
   category?: string;
   h1?: string;
   h2?: string;
+  highlight?: Record<string, string>;
 };
 
 type Labels = {
@@ -25,6 +26,7 @@ type Labels = {
   clearSearch: string;
   searchResults: string;
   searchError: string;
+  recentSearches: string;
 };
 
 type CategoryOption = { id: string; name: string; slug: string };
@@ -49,6 +51,7 @@ export default function SearchPageClient({
   const [category, setCategory] = useState(initialCategory);
   const [hits, setHits] = useState<Hit[]>(initialHits);
   const [loading, setLoading] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [status, setStatus] = useState<"idle" | "short" | "empty" | "results" | "error">(
     initialQuery.length >= 2
       ? initialHits.length > 0
@@ -59,6 +62,42 @@ export default function SearchPageClient({
       : "idle"
   );
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const historyKey = `docs_search_history:${tenantSlug}`;
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(historyKey);
+      if (raw) setRecentSearches(JSON.parse(raw).slice(0, 6));
+    } catch {
+      setRecentSearches([]);
+    }
+  }, [historyKey]);
+
+  useEffect(() => {
+    function onShortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, []);
+
+  function rememberSearch(value: string) {
+    const nextQuery = value.trim();
+    if (nextQuery.length < 2) return;
+    setRecentSearches((current) => {
+      const next = [nextQuery, ...current.filter((item) => item.toLowerCase() !== nextQuery.toLowerCase())].slice(0, 6);
+      try {
+        localStorage.setItem(historyKey, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
 
   async function doSearch(q: string, nextCategory = category) {
     if (q.trim().length < 2) {
@@ -75,6 +114,7 @@ export default function SearchPageClient({
         const data: Hit[] = await res.json();
         setHits(data);
         setStatus(data.length > 0 ? "results" : "empty");
+        rememberSearch(q);
         const nextUrlParams = new URLSearchParams({ q: q.trim() });
         if (nextCategory) nextUrlParams.set("category", nextCategory);
         router.replace(`/d/${tenantSlug}/search?${nextUrlParams.toString()}`, { scroll: false });
@@ -120,6 +160,7 @@ export default function SearchPageClient({
           </svg>
         )}
         <input
+          ref={inputRef}
           autoFocus
           value={query}
           onChange={(e) => handleChange(e.target.value)}
@@ -160,6 +201,27 @@ export default function SearchPageClient({
         </div>
       )}
 
+      {recentSearches.length > 0 && !query.trim() && (
+        <div className="mt-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">{labels.recentSearches}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {recentSearches.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => {
+                  setQuery(item);
+                  doSearch(item).catch(() => {});
+                }}
+                className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-300"
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Results */}
       <div className="mt-6 space-y-2">
         {status === "idle" && (
@@ -182,12 +244,19 @@ export default function SearchPageClient({
             {labels.searchError}
           </p>
         )}
-        {status === "results" && (
+        {loading && (
+          <div className="space-y-2">
+            {[0, 1, 2].map((item) => (
+              <div key={item} className="h-24 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+            ))}
+          </div>
+        )}
+        {status === "results" && !loading && (
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
             {hits.length} {labels.searchResults}
           </p>
         )}
-        {status === "results" &&
+        {status === "results" && !loading &&
           hits.map((hit, i) => (
             <Link
               key={`${hit.source_id}-${i}`}
@@ -200,11 +269,19 @@ export default function SearchPageClient({
                 </p>
               )}
               <p className="font-semibold text-emerald-700 dark:text-emerald-300">
-                <SearchHighlight text={hit.matched_text || hit.h2 || hit.h1 || hit.category || ""} query={query} />
+                <SearchHighlight
+                  text={hit.matched_text || hit.h2 || hit.h1 || hit.category || ""}
+                  query={query}
+                  formatted={hit.highlight?.title}
+                />
               </p>
               {hit.context && (
                 <p className="mt-1.5 line-clamp-2 text-sm text-gray-600 dark:text-gray-400">
-                  <SearchHighlight text={hit.context} query={query} />
+                  <SearchHighlight
+                    text={hit.context}
+                    query={query}
+                    formatted={hit.highlight?.description || hit.highlight?.body}
+                  />
                 </p>
               )}
             </Link>

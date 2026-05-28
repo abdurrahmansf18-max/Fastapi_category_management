@@ -6,11 +6,10 @@ import re
 import sys
 from pathlib import Path
 
-from app.db.provisioning import FREE_PLAN_LIMITS, PLATFORM_DDL, PRO_PLAN_LIMITS, TENANT_DDL
+from app.db.provisioning import FREE_PLAN_LIMITS, PLATFORM_DDL, TENANT_DDL
 
 PARAMS = {
     **{f"free_{key}": value for key, value in FREE_PLAN_LIMITS.items()},
-    **{f"pro_{key}": value for key, value in PRO_PLAN_LIMITS.items()},
 }
 
 PARAM_RE = re.compile(r":([a-z_][a-z0-9_]*)")

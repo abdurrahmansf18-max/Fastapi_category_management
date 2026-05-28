@@ -18,7 +18,8 @@ type H2Item = { id: string; title: string; slug: string };
 type H1Item = { id: string; title: string; slug: string; children: H2Item[] };
 type Category = { id: string; name: string; slug: string; headings: H1Item[] };
 type ContentImage = { id: string; url: string; alt: string; sort_order: number; width?: number; height?: number };
-type Content = { id: string; heading_id: string; body: string; description?: string; images?: ContentImage[] };
+type ContentAttachment = { id: string; url: string; label: string; file_name: string; sort_order: number };
+type Content = { id: string; heading_id: string; body: string; description?: string; images?: ContentImage[]; attachments?: ContentAttachment[] };
 
 type Labels = {
   selectHeading: string;
@@ -42,6 +43,16 @@ function injectImages(body: string, images: ContentImage[]): string {
     const heightAttr = img.height ? ` height="${img.height}"` : "";
     // Use HTML img tag so width/height are preserved; rehype-sanitize allows these attrs
     return `<img src="${img.url}" alt="${alt}"${widthAttr}${heightAttr} loading="lazy" />`;
+  });
+}
+
+function injectFiles(body: string, attachments: ContentAttachment[]): string {
+  let i = 0;
+  return body.replace(/<--file-->/g, () => {
+    const att = attachments[i++];
+    if (!att) return "";
+    const label = att.label || att.file_name;
+    return `<a href="${att.url}" target="_blank" rel="noreferrer noopener">📎 ${label}</a>`;
   });
 }
 
@@ -223,20 +234,29 @@ export default function PublicDocsLayout({
       if (!res.ok) return;
       const items: Content[] = await res.json();
 
-      // For each content that has <--image--> placeholders, fetch its images
-      const withImages = await Promise.all(
+      // For each content, fetch images (if <--image-->) and attachments (if <--file-->)
+      const withAssets = await Promise.all(
         items.map(async (c) => {
-          if (!c.body.includes("<--image-->")) return c;
-          try {
-            const imgRes = await fetch(`/api/t/${tenantSlug}/contents/${c.id}/images`);
-            const images: ContentImage[] = imgRes.ok ? await imgRes.json() : [];
-            return { ...c, images };
-          } catch {
-            return c;
-          }
+          const [images, attachments] = await Promise.all([
+            c.body.includes("<--image-->")
+              ? fetch(`/api/t/${tenantSlug}/contents/${c.id}/images`)
+                  .then((r) => (r.ok ? r.json() : []))
+                  .catch(() => [])
+              : Promise.resolve(undefined),
+            c.body.includes("<--file-->")
+              ? fetch(`/api/t/${tenantSlug}/contents/${c.id}/attachments`)
+                  .then((r) => (r.ok ? r.json() : []))
+                  .catch(() => [])
+              : Promise.resolve(undefined),
+          ]);
+          return {
+            ...c,
+            ...(images !== undefined ? { images } : {}),
+            ...(attachments !== undefined ? { attachments } : {}),
+          };
         })
       );
-      setContents(withImages);
+      setContents(withAssets);
     } finally {
       setLoading(false);
     }
@@ -517,11 +537,16 @@ export default function PublicDocsLayout({
 
         {/* Loading */}
         {loading && activeH1 && (
-          <div className="flex items-center justify-center p-16">
-            <svg className="h-7 w-7 animate-spin text-emerald-500" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-            </svg>
+          <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+            <div className="rounded-2xl border border-gray-200 bg-white/95 px-5 py-7 shadow-sm dark:border-gray-800 dark:bg-gray-900/95 sm:px-8 sm:py-8">
+              <div className="h-8 w-2/3 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+              <div className="mt-8 space-y-3">
+                <div className="h-4 w-full animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+                <div className="h-4 w-11/12 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+                <div className="h-4 w-4/5 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+              </div>
+              <div className="mt-6 aspect-video w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+            </div>
           </div>
         )}
 
@@ -595,7 +620,14 @@ export default function PublicDocsLayout({
                               ),
                             }}
                           >
-                            {c.images?.length ? injectImages(c.body, c.images) : c.body}
+                            {(() => {
+                              const fileMarkers = (c.body.match(/<--file-->/g) || []).length;
+                              const allAtts = c.attachments || [];
+                              const inlineAtts = allAtts.slice(0, fileMarkers);
+                              let rendered = c.images?.length ? injectImages(c.body, c.images) : c.body;
+                              if (fileMarkers > 0) rendered = injectFiles(rendered, inlineAtts);
+                              return rendered;
+                            })()}
                           </ReactMarkdown>
                         </div>
                       </div>

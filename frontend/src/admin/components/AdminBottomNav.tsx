@@ -1,32 +1,59 @@
 import { useTranslation } from "react-i18next";
-import { FileText, FolderTree, Heading2, Link2, Users } from "lucide-react";
-import { Globe2 } from "lucide-react";
+import { BarChart3, Bell, FileText, FolderTree, Heading2, Link2, Users } from "lucide-react";
+import { cx } from "../utils/uiHelpers";
 
-const links = [
-  ["#admin-categories", "categories", FolderTree],
-  ["#admin-headings", "headings", Heading2],
-  ["#admin-contents", "contents", FileText],
-  ["#admin-users", "admins", Users],
-  ["#admin-redirects", "redirects", Link2],
+export type AdminMobileSection =
+  | "overview"
+  | "categories"
+  | "headings"
+  | "contents"
+  | "admins"
+  | "redirects"
+  | "notifications";
+
+const tabs = [
+  ["overview", "dashboard", BarChart3],
+  ["categories", "categories", FolderTree],
+  ["headings", "headings", Heading2],
+  ["contents", "contents", FileText],
+  ["admins", "admins", Users],
+  ["redirects", "redirects", Link2],
+  ["notifications", "notifications", Bell],
 ] as const;
 
-export default function AdminBottomNav({ tenantSlug }: { tenantSlug: string }) {
+export default function AdminBottomNav({
+  activeSection,
+  onSelect,
+}: {
+  activeSection: AdminMobileSection;
+  onSelect: (section: AdminMobileSection) => void;
+}) {
   const { t } = useTranslation();
+
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-6 border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom)] text-xs font-semibold text-gray-700 shadow-2xl backdrop-blur md:hidden dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200">
-      {links.map(([href, key, Icon]) => (
-        <a key={href} className="flex min-h-16 flex-col items-center justify-center gap-1 px-1 pb-1.5 pt-2" href={href}>
-          <Icon className="h-4 w-4" aria-hidden="true" />
-          <span className="max-w-full truncate">{t(key)}</span>
-        </a>
-      ))}
-      <a
-        href={`/d/${tenantSlug}`}
-        className="flex min-h-16 flex-col items-center justify-center gap-1 px-1 pb-1.5 pt-2 text-emerald-600 dark:text-emerald-400"
-      >
-        <Globe2 className="h-4 w-4" aria-hidden="true" />
-        <span className="max-w-full truncate">{t("public_site")}</span>
-      </a>
+    <nav className="sticky top-16 z-30 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur md:hidden dark:border-gray-800 dark:bg-gray-950/95">
+      <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto px-4 py-2 [&::-webkit-scrollbar]:hidden" style={{WebkitOverflowScrolling:"touch"}}>
+        {tabs.map(([section, key, Icon]) => {
+          const selected = activeSection === section;
+          return (
+            <button
+              key={section}
+              type="button"
+              aria-current={selected ? "page" : undefined}
+              onClick={() => onSelect(section)}
+              className={cx(
+                "inline-flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-xs font-semibold transition-colors",
+                selected
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-500/70 dark:bg-emerald-500/15 dark:text-emerald-300"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:text-emerald-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300 dark:hover:border-emerald-700 dark:hover:text-emerald-300"
+              )}
+            >
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              <span className="whitespace-nowrap">{t(key)}</span>
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 }

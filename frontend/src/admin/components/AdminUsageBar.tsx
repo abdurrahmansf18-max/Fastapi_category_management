@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Users, FolderOpen, BookOpen, FileText, Cpu, Image } from "lucide-react";
+import { Users, FolderOpen, BookOpen, FileText, Image } from "lucide-react";
 
 type UsagePayload = {
   usage?: Record<string, number>;
@@ -18,8 +18,7 @@ const STATS = [
   { key: "categories",labelKey: "categories",   Icon: FolderOpen, grad: "from-violet-500 to-purple-500" },
   { key: "headings",  labelKey: "headings",      Icon: BookOpen,   grad: "from-emerald-500 to-teal-500" },
   { key: "contents",  labelKey: "contents",      Icon: FileText,   grad: "from-amber-500 to-orange-500" },
-  { key: "ai",        labelKey: "ai_monthly",    Icon: Cpu,        grad: "from-rose-500 to-pink-500" },
-  { key: "upload",    labelKey: "upload_image",  Icon: Image,      grad: "from-cyan-500 to-sky-500", isByte: true },
+  { key: "upload_bytes", labelKey: "upload_image", Icon: Image,    grad: "from-cyan-500 to-sky-500", isByte: true },
 ];
 
 export default function AdminUsageBar({ usage }: { usage: UsagePayload | null }) {
@@ -27,20 +26,20 @@ export default function AdminUsageBar({ usage }: { usage: UsagePayload | null })
   if (!usage) return null;
 
   return (
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {STATS.map(({ key, labelKey, Icon, grad, isByte }) => {
-        const raw = key === "ai" ? usage.usage?.ai_monthly : usage.usage?.[key];
+        const raw = usage.usage?.[key];
         const display = isByte ? fmtBytes(raw) : String(Number(raw) || 0);
 
         return (
-          <div key={key} className="item-card flex flex-col gap-2">
+          <div key={key} className="item-card flex min-h-24 flex-col justify-between gap-2 sm:min-h-0">
             <div className="flex items-center justify-between">
               <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br ${grad} shadow-sm`}>
                 <Icon className="h-4 w-4 text-white" />
               </div>
-              <span className="text-lg font-bold text-gray-900 dark:text-white">{display}</span>
+              <span className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">{display}</span>
             </div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 sm:text-[11px]">
               {t(labelKey)}
             </p>
             <div className={`h-0.5 rounded-full bg-gradient-to-r ${grad} opacity-50`} />

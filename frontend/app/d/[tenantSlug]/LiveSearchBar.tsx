@@ -12,6 +12,7 @@ type Hit = {
   category?: string;
   h1?: string;
   h2?: string;
+  highlight?: Record<string, string>;
 };
 
 export default function LiveSearchBar({
@@ -30,6 +31,7 @@ export default function LiveSearchBar({
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -37,6 +39,7 @@ export default function LiveSearchBar({
   const containerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
+  const historyKey = `docs_search_history:${tenantSlug}`;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -48,11 +51,32 @@ export default function LiveSearchBar({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(historyKey);
+      if (raw) setRecentSearches(JSON.parse(raw).slice(0, 5));
+    } catch {
+      setRecentSearches([]);
+    }
+  }, [historyKey]);
+
+  function rememberSearch(value: string) {
+    const nextQuery = value.trim();
+    if (nextQuery.length < 2) return;
+    setRecentSearches((current) => {
+      const next = [nextQuery, ...current.filter((item) => item.toLowerCase() !== nextQuery.toLowerCase())].slice(0, 5);
+      try {
+        localStorage.setItem(historyKey, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
   async function search(q: string) {
     if (q.trim().length < 2) {
       setHits([]);
       setSuggestions([]);
-      setOpen(false);
+      setOpen(recentSearches.length > 0);
       setActiveIndex(-1);
       return;
     }
@@ -100,6 +124,7 @@ export default function LiveSearchBar({
     }
     if (e.key === "Enter" && query.trim().length >= 2) {
       setOpen(false);
+      rememberSearch(query);
       const activeHit = activeIndex >= 0 ? hits[activeIndex] : null;
       router.push(activeHit?.url || `/d/${tenantSlug}/search?q=${encodeURIComponent(query.trim())}`);
     }
@@ -131,7 +156,7 @@ export default function LiveSearchBar({
           value={query}
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => hits.length > 0 && setOpen(true)}
+          onFocus={() => (hits.length > 0 || recentSearches.length > 0) && setOpen(true)}
           placeholder={placeholder}
           className="h-11 w-full rounded-xl border border-gray-200 bg-white ps-10 pe-10 text-sm shadow-sm outline-none transition placeholder:text-gray-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:border-emerald-600"
           role="combobox"
@@ -140,7 +165,7 @@ export default function LiveSearchBar({
         />
       </div>
 
-      {open && (hits.length > 0 || suggestions.length > 0 || error || query.trim().length >= 2) && (
+      {open && (hits.length > 0 || suggestions.length > 0 || recentSearches.length > 0 || error || query.trim().length >= 2) && (
         <div id="live-search-results" className="absolute inset-x-0 top-full z-50 mt-1.5 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
           {error && (
             <div className="px-4 py-3 text-sm text-red-600 dark:text-red-300">{searchErrorLabel}</div>
@@ -156,6 +181,7 @@ export default function LiveSearchBar({
                   type="button"
                   onClick={() => {
                     setQuery(suggestion);
+                    rememberSearch(suggestion);
                     search(suggestion).catch(() => {});
                   }}
                   className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-emerald-100 hover:text-emerald-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-emerald-950 dark:hover:text-emerald-300"
@@ -165,12 +191,29 @@ export default function LiveSearchBar({
               ))}
             </div>
           )}
+          {query.trim().length < 2 && recentSearches.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-3 py-2">
+              {recentSearches.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    setQuery(item);
+                    search(item).catch(() => {});
+                  }}
+                  className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-emerald-100 hover:text-emerald-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-emerald-950 dark:hover:text-emerald-300"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          )}
           {hits.length > 0 && <ul role="listbox">
             {hits.map((hit, i) => (
               <li key={`${hit.source_id}-${i}`}>
                 <Link
                   href={hit.url || `/d/${tenantSlug}`}
-                  onClick={() => { setOpen(false); setQuery(""); }}
+                  onClick={() => { rememberSearch(query); setOpen(false); setQuery(""); }}
                   className={`flex items-start gap-3 px-4 py-3 text-sm transition-colors hover:bg-emerald-50 dark:hover:bg-emerald-950/30 ${
                     activeIndex === i ? "bg-emerald-50 dark:bg-emerald-950/30" : ""
                   }`}
@@ -180,11 +223,11 @@ export default function LiveSearchBar({
                   <span className="mt-0.5 text-xs text-emerald-500 dark:text-emerald-400">{getIcon(hit)}</span>
                   <div className="min-w-0">
                     <p className="truncate font-medium text-gray-800 dark:text-gray-100">
-                      <SearchHighlight text={hit.matched_text || hit.h2 || hit.h1 || hit.category || ""} query={query} />
+                      <SearchHighlight text={hit.matched_text || hit.h2 || hit.h1 || hit.category || ""} query={query} formatted={hit.highlight?.title} />
                     </p>
                     {hit.context && (
                       <p className="mt-0.5 line-clamp-1 text-xs text-gray-400 dark:text-gray-500">
-                        <SearchHighlight text={hit.context} query={query} />
+                        <SearchHighlight text={hit.context} query={query} formatted={hit.highlight?.description || hit.highlight?.body} />
                       </p>
                     )}
                     {(hit.h1 || hit.category) && (
@@ -200,7 +243,7 @@ export default function LiveSearchBar({
           <div className="border-t border-gray-100 dark:border-gray-800">
             <Link
               href={`/d/${tenantSlug}/search?q=${encodeURIComponent(query.trim())}`}
-              onClick={() => setOpen(false)}
+              onClick={() => { rememberSearch(query); setOpen(false); }}
               className="flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
             >
               {allResultsLabel}

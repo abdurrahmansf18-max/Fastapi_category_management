@@ -6,6 +6,9 @@ import CreateCategoryForm from "../components/CreateCategoryForm";
 import { ListControls, PaginationControls } from "../components/ListControls";
 import type { Category, UUID } from "../../shared/types/models";
 
+const visibleCategoryDescription = (category: Category) =>
+  category.seo_description || category.description || "";
+
 interface CategoriesViewProps {
   cats: Category[];
   activeCat: Category | null;
@@ -42,7 +45,7 @@ export default function CategoriesView({
     const needle = query.trim().toLowerCase();
     if (!needle) return cats;
     return cats.filter((category) =>
-      `${category.name} ${category.description || ""} ${category.seo_description || ""} ${category.slug}`.toLowerCase().includes(needle)
+      `${category.name} ${visibleCategoryDescription(category)} ${category.slug}`.toLowerCase().includes(needle)
     );
   }, [cats, query]);
   const paged = paginate(filtered, page, 12);
@@ -79,7 +82,10 @@ export default function CategoriesView({
           </div>
         ) : (
           <div className="grid gap-2">
-            {paged.items.map((c) => (
+            {paged.items.map((c) => {
+              const description = visibleCategoryDescription(c);
+
+              return (
               <div key={c.id} className={itemCard}>
                 <div className="flex items-center gap-4 justify-between">
                   <button
@@ -117,20 +123,15 @@ export default function CategoriesView({
                           String(c.sort_order ?? 0),
                           t("order_int")
                         );
-                        const description = await showPrompt(
-                          t("edit_description"),
-                          c.description || "",
-                          t("description_optional")
-                        );
                         const seoDescription = await showPrompt(
                           t("category_seo_description_title"),
-                          c.seo_description || "",
+                          description,
                           t("category_seo_description_hint")
                         );
                         updateCategory(c.id, {
                           name: name || c.name,
                           sort_order: Number(sort ?? c.sort_order),
-                          description: toUndef(description),
+                          description: null,
                           seo_description: toUndef(seoDescription),
                         }).catch(() => {});
                       }}
@@ -148,13 +149,14 @@ export default function CategoriesView({
                     </button>
                   </div>
                 </div>
-                {c.description && (
+                {description && (
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 p-3 bg-gray-50/50 dark:bg-gray-800/30 rounded-xl">
-                    {c.description}
+                    {description}
                   </p>
                 )}
               </div>
-            ))}
+              );
+            })}
             <PaginationControls
               page={paged.page}
               pageCount={paged.pageCount}

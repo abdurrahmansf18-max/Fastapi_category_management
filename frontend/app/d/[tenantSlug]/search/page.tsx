@@ -59,6 +59,7 @@ export default async function SearchPage({
   const labels = publicCopy[lang];
   const dir = lang === "ar" ? "rtl" : "ltr";
   const query = q.trim();
+  const siteTitle = settings.site_title || tenantSlug;
 
   const initialHits =
     query.length >= 2
@@ -72,6 +73,19 @@ export default async function SearchPage({
 
   return (
     <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: siteTitle, item: siteUrl(`/d/${tenantSlug}`) },
+              { "@type": "ListItem", position: 2, name: labels.searchMetaTitle, item: siteUrl(`/d/${tenantSlug}/search`) },
+            ],
+          }),
+        }}
+      />
       <PublicHeader tenantSlug={tenantSlug} settings={settings} lang={lang} />
 
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
@@ -106,6 +120,7 @@ export default async function SearchPage({
             clearSearch: labels.clearSearch,
             searchResults: labels.searchResults,
             searchError: labels.searchError,
+            recentSearches: labels.recentSearches,
           }}
         />
       </div>

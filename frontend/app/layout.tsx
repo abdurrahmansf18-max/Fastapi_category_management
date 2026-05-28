@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
+import PwaRegister from "./PwaRegister";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  applicationName: "Docs Platform",
   title: {
     default: "Docs Platform",
     template: "%s | Docs Platform",
   },
   description: "Multi-tenant documentation platform for public docs and private admin workflows.",
+  manifest: "/manifest.webmanifest",
   robots: { index: true, follow: true },
 };
 
@@ -36,6 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={dark ? "dark" : undefined}
     >
       <body>
+        <PwaRegister />
         {children}
       </body>
     </html>

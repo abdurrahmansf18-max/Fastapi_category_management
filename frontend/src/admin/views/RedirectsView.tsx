@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link2, Plus, Trash2 } from "lucide-react";
+import { Info, Link2, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { RedirectRulesApi } from "../../shared/api/admin";
+import { localizeBackendError } from "../../shared/utils/localizeError";
 import type { RedirectRule } from "../../shared/types/models";
 import { sectionCard } from "../utils/uiHelpers";
 
@@ -15,7 +16,7 @@ export default function RedirectsView({ showNotification }: RedirectsViewProps) 
   const [loading, setLoading] = useState(false);
   const [sourcePath, setSourcePath] = useState("");
   const [targetPath, setTargetPath] = useState("");
-  const [statusCode, setStatusCode] = useState<301 | 302 | 307 | 308>(301);
+  const [statusCode, setStatusCode] = useState<301 | 302>(301);
   const [note, setNote] = useState("");
 
   async function fetchRules() {
@@ -51,7 +52,7 @@ export default function RedirectsView({ showNotification }: RedirectsViewProps) 
       await fetchRules();
       showNotification(t("redirect_added"), "success");
     } catch (error: any) {
-      showNotification(error?.message || t("redirect_add_error"), "error");
+      showNotification(localizeBackendError(error?.message, t) || t("redirect_add_error"), "error");
     }
   }
 
@@ -86,6 +87,20 @@ export default function RedirectsView({ showNotification }: RedirectsViewProps) 
         </div>
       </div>
 
+      {/* Kullanım notu */}
+      <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800/50 dark:bg-blue-900/20">
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500 dark:text-blue-400" />
+        <div className="text-xs leading-relaxed text-blue-700 dark:text-blue-300">
+          {t("redirects_help").split("\n").map((line, i) =>
+            line.startsWith("•") ? (
+              <p key={i} className="mt-1 ps-2">{line}</p>
+            ) : (
+              <p key={i} className={i > 0 ? "mt-2" : ""}>{line}</p>
+            )
+          )}
+        </div>
+      </div>
+
       <form onSubmit={addRule} className="grid gap-3 rounded-xl border border-dashed border-gray-300/60 bg-gray-50/80 p-4 dark:border-gray-700/60 dark:bg-gray-800/50 md:grid-cols-5">
         <input
           value={sourcePath}
@@ -103,13 +118,11 @@ export default function RedirectsView({ showNotification }: RedirectsViewProps) 
         />
         <select
           value={statusCode}
-          onChange={(e) => setStatusCode(Number(e.target.value) as 301 | 302 | 307 | 308)}
+          onChange={(e) => setStatusCode(Number(e.target.value) as 301 | 302)}
           className="min-h-11 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
         >
-          <option value={301}>301</option>
-          <option value={302}>302</option>
-          <option value={307}>307</option>
-          <option value={308}>308</option>
+          <option value={301}>301 – {t("redirect_301_label")}</option>
+          <option value={302}>302 – {t("redirect_302_label")}</option>
         </select>
         <input
           value={note}
@@ -134,7 +147,9 @@ export default function RedirectsView({ showNotification }: RedirectsViewProps) 
         ) : (
           rules.map((rule) => (
             <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
-              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">{rule.status_code}</span>
+              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                {rule.status_code === 301 ? `301 ${t("redirect_301_label")}` : rule.status_code === 302 ? `302 ${t("redirect_302_label")}` : rule.status_code}
+              </span>
               <span className="text-xs text-gray-500">{rule.source_path}</span>
               <span className="text-xs text-gray-400">→</span>
               <span className="text-xs text-emerald-700 dark:text-emerald-400">{rule.target_path}</span>

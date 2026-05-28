@@ -1,0 +1,104 @@
+name: deploy
+
+on:
+  workflow_run:
+    workflows:
+      - ci
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  production:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Validate deployment secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          test -n "$DEPLOY_HOST" || (echo "Missing DEPLOY_HOST secret" && exit 1)
+          test -n "$DEPLOY_USER" || (echo "Missing DEPLOY_USER secret" && exit 1)
+          test -n "$DEPLOY_SSH_KEY" || (echo "Missing DEPLOY_SSH_KEY secret" && exit 1)
+          test -n "$DEPLOY_PATH" || (echo "Missing DEPLOY_PATH secret" && exit 1)
+
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          DEPLOY_PORT="${DEPLOY_PORT:-22}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy production stack
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_BRANCH: ${{ vars.DEPLOY_BRANCH }}
+          DEPLOY_HEALTH_URL: ${{ vars.DEPLOY_HEALTH_URL }}
+        run: |
+          DEPLOY_PORT="${DEPLOY_PORT:-22}"
+          DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DEPLOY_PATH='$DEPLOY_PATH' DEPLOY_BRANCH='$DEPLOY_BRANCH' DEPLOY_HEALTH_URL='$DEPLOY_HEALTH_URL' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          cd "$DEPLOY_PATH"
+          git fetch --prune origin "$DEPLOY_BRANCH"
+          git checkout "$DEPLOY_BRANCH"
+          git pull --ff-only origin "$DEPLOY_BRANCH"
+
+          docker compose -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.prod.yml build
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+          backend_id="$(docker compose -f docker-compose.prod.yml ps -q backend)"
+          if [ -z "$backend_id" ]; then
+            echo "Backend container was not created."
+            docker compose -f docker-compose.prod.yml ps
+            exit 1
+          fi
+
+          status="unknown"
+          for attempt in $(seq 1 36); do
+            status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' "$backend_id" 2>/dev/null || true)"
+            if [ "$status" = "healthy" ]; then
+              break
+            fi
+            echo "Backend health: ${status:-unknown} ($attempt/36)"
+            sleep 5
+          done
+
+          if [ "$status" != "healthy" ]; then
+            docker compose -f docker-compose.prod.yml logs --tail=120 backend migrate
+            exit 1
+          fi
+
+          docker compose -f docker-compose.prod.yml exec -T backend \
+            python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=10)"
+
+          if [ -n "${DEPLOY_HEALTH_URL:-}" ]; then
+            curl -fsS "$DEPLOY_HEALTH_URL" >/dev/null
+          fi
+
+          docker image prune -f
+          REMOTE

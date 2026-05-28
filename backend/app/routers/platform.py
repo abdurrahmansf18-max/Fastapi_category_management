@@ -35,6 +35,7 @@ from app.core.sessions import (
     rotate_platform_session,
     validate_platform_session,
 )
+from app.db.provisioning import drop_tenant_schema
 from app.db.session import platform_execute, platform_fetch_all, platform_fetch_one
 
 platform_router = APIRouter(prefix="/platform", tags=["platform"])
@@ -42,8 +43,8 @@ platform_router = APIRouter(prefix="/platform", tags=["platform"])
 
 class PlatformLoginIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
-    totp_code: str = Field(min_length=6, max_length=8)
+    password: str = Field(min_length=1)
+    totp_code: str = Field(default="", max_length=8)
 
 
 class TenantStatusIn(BaseModel):
@@ -51,8 +52,14 @@ class TenantStatusIn(BaseModel):
 
 
 class TenantPlanIn(BaseModel):
-    plan_code: str = Field(pattern="^(free|pro)$")
+    plan_code: str = Field(pattern="^free$")
     reason: Optional[str] = ""
+
+
+class ContactIn(BaseModel):
+    name: str = Field(default="", max_length=120)
+    email: str = Field(default="", max_length=320)
+    message: str = Field(min_length=1, max_length=5000)
 
 
 class TenantImpersonateIn(BaseModel):
@@ -84,23 +91,45 @@ async def get_current_platform_owner(
 
 @platform_router.post("/auth/login")
 async def platform_login(payload: PlatformLoginIn, request: Request, response: Response):
-    if not settings.PLATFORM_OWNER_EMAIL or not settings.PLATFORM_OWNER_PASSWORD_HASH:
+    # En az e-posta + şifre (düz metin veya hash) yapılandırılmış olmalı
+    if not settings.PLATFORM_OWNER_EMAIL or (
+        not settings.PLATFORM_OWNER_PASSWORD and not settings.PLATFORM_OWNER_PASSWORD_HASH
+    ):
         raise HTTPException(status_code=503, detail="Platform owner credentials are not configured")
+
+    # E-posta kontrolü
     if payload.email.lower() != settings.PLATFORM_OWNER_EMAIL.lower():
         await log_audit_event(action="platform.login_failed", request=request, metadata={"email": payload.email})
         raise HTTPException(status_code=400, detail="Invalid platform credentials")
-    if not pwd_context.verify(payload.password, settings.PLATFORM_OWNER_PASSWORD_HASH):
+
+    # Şifre kontrolü: önce bcrypt hash, yoksa düz metin karşılaştır
+    password_ok = False
+    if settings.PLATFORM_OWNER_PASSWORD_HASH:
+        try:
+            password_ok = pwd_context.verify(payload.password, settings.PLATFORM_OWNER_PASSWORD_HASH)
+        except Exception:
+            password_ok = False
+    elif settings.PLATFORM_OWNER_PASSWORD:
+        password_ok = (payload.password == settings.PLATFORM_OWNER_PASSWORD)
+
+    if not password_ok:
         await log_audit_event(action="platform.login_failed", request=request, metadata={"email": payload.email})
         raise HTTPException(status_code=400, detail="Invalid platform credentials")
+
+    # TOTP: secret yapılandırılmışsa zorunlu
     if settings.PLATFORM_OWNER_TOTP_SECRET:
+        if not payload.totp_code:
+            raise HTTPException(status_code=400, detail="TOTP code is required")
         try:
             import pyotp
-        except ImportError as exc:
-            raise HTTPException(status_code=503, detail="TOTP package is not installed") from exc
-        totp = pyotp.TOTP(settings.PLATFORM_OWNER_TOTP_SECRET)
-        if not totp.verify(payload.totp_code, valid_window=1):
-            await log_audit_event(action="platform.login_failed_totp", request=request, metadata={"email": payload.email})
-            raise HTTPException(status_code=400, detail="Invalid TOTP code")
+            totp = pyotp.TOTP(settings.PLATFORM_OWNER_TOTP_SECRET)
+            if not totp.verify(payload.totp_code, valid_window=1):
+                await log_audit_event(action="platform.login_failed_totp", request=request, metadata={"email": payload.email})
+                raise HTTPException(status_code=400, detail="Invalid TOTP code")
+        except HTTPException:
+            raise
+        except ImportError:
+            raise HTTPException(status_code=503, detail="TOTP package not installed")
 
     token = create_access_token({"typ": "platform_access", "email": payload.email})
     csrf_token = issue_csrf_token()
@@ -161,17 +190,9 @@ async def list_tenants(_=Depends(get_current_platform_owner)):
         """
         SELECT
           t.id, t.name, t.slug, t.status, t.plan_code, t.created_at,
-          ua.email AS owner_email,
-          COALESCE(s.status, 'none') AS billing_status
+          ua.email AS owner_email
         FROM public.tenant t
         JOIN public.user_account ua ON ua.id = t.owner_user_id
-        LEFT JOIN LATERAL (
-          SELECT status
-          FROM public.subscription s
-          WHERE s.tenant_id = t.id
-          ORDER BY s.updated_at DESC
-          LIMIT 1
-        ) s ON true
         ORDER BY t.created_at DESC
         LIMIT 500
         """
@@ -337,6 +358,76 @@ async def impersonate_tenant_owner(
     }
 
 
+class TenantBulkDeleteIn(BaseModel):
+    tenant_ids: list[uuid.UUID] = Field(min_length=1, max_length=50)
+
+
+@platform_router.post("/tenants/bulk-delete", status_code=204)
+async def bulk_delete_tenants(
+    payload: TenantBulkDeleteIn,
+    request: Request,
+    owner=Depends(get_current_platform_owner),
+):
+    deleted = []
+    for tenant_id in payload.tenant_ids:
+        row = await platform_fetch_one(
+            "SELECT id, slug, schema_name, owner_user_id FROM public.tenant WHERE id = :id",
+            {"id": tenant_id},
+        )
+        if not row:
+            continue
+        await revoke_admin_sessions_for_tenant(tenant_id=str(tenant_id))
+        await drop_tenant_schema(row["schema_name"])
+        await platform_execute("DELETE FROM public.tenant WHERE id = :id", {"id": tenant_id})
+        await platform_execute("DELETE FROM public.user_account WHERE id = :uid", {"uid": row["owner_user_id"]})
+        deleted.append(row["slug"])
+    await log_audit_event(
+        action="platform.tenants_bulk_deleted",
+        request=request,
+        metadata={"owner": owner["email"], "deleted_slugs": deleted, "count": len(deleted)},
+    )
+    return
+
+
+@platform_router.delete("/tenants/{tenant_id}", status_code=204)
+async def delete_tenant(
+    tenant_id: uuid.UUID,
+    request: Request,
+    owner=Depends(get_current_platform_owner),
+):
+    row = await platform_fetch_one(
+        """
+        SELECT t.id, t.slug, t.schema_name, t.owner_user_id
+        FROM public.tenant t
+        WHERE t.id = :tenant_id
+        """,
+        {"tenant_id": tenant_id},
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    await revoke_admin_sessions_for_tenant(tenant_id=str(tenant_id))
+    await drop_tenant_schema(row["schema_name"])
+    await platform_execute(
+        "DELETE FROM public.tenant WHERE id = :tenant_id",
+        {"tenant_id": tenant_id},
+    )
+    await platform_execute(
+        "DELETE FROM public.user_account WHERE id = :user_id",
+        {"user_id": row["owner_user_id"]},
+    )
+    await log_audit_event(
+        action="platform.tenant_deleted",
+        request=request,
+        metadata={
+            "owner": owner["email"],
+            "tenant_slug": row["slug"],
+            "tenant_id": str(tenant_id),
+        },
+    )
+    return
+
+
 @platform_router.get("/audit")
 async def audit_events(
     tenant_id: str | None = Query(default=None),
@@ -423,7 +514,6 @@ async def ops_status(_=Depends(get_current_platform_owner)):
 
     tenants = await platform_fetch_one("SELECT count(*) AS c FROM public.tenant")
     active = await platform_fetch_one("SELECT count(*) AS c FROM public.tenant WHERE status = 'active'")
-    billing = await platform_fetch_one("SELECT count(*) AS c FROM public.subscription WHERE status IN ('active', 'trialing')")
     queue_worker_alive = False
     queue_message = "not_checked"
     try:
@@ -439,16 +529,7 @@ async def ops_status(_=Depends(get_current_platform_owner)):
         "ok": True,
         "tenants": tenants["c"] if tenants else 0,
         "active_tenants": active["c"] if active else 0,
-        "active_subscriptions": billing["c"] if billing else 0,
         "search": {"configured": bool(settings.MEILISEARCH_URL)},
-        "iyzico": {
-            "configured": bool(
-                settings.IYZICO_API_KEY
-                and settings.IYZICO_SECRET_KEY
-                and settings.IYZICO_MERCHANT_ID
-                and settings.IYZICO_SUBSCRIPTION_PLAN_REF
-            )
-        },
         "redis": {"configured": bool(settings.REDIS_URL)},
         "queue": {
             "configured": bool(settings.REDIS_URL),
@@ -503,3 +584,96 @@ async def update_platform_branding(
         metadata={"site_name": body.site_name, "has_logo": bool(body.site_logo)},
     )
     return {"ok": True}
+
+
+# ── Contact / Support form ─────────────────────────────────────────
+
+@platform_router.post("/contact", status_code=201)
+async def submit_contact(payload: ContactIn, request: Request):
+    """Public endpoint — no auth required. Rate-limited per IP."""
+    from app.core.rate_limit import enforce_rate_limit
+    await enforce_rate_limit(request, scope="contact-form", limit=10, window_seconds=3600)
+
+    ip_addr: Optional[str] = None
+    try:
+        ip_addr = request.client.host if request.client else None
+    except Exception:
+        pass
+
+    await platform_execute(
+        """
+        INSERT INTO public.contact_message (name, email, message, user_agent, ip)
+        VALUES (:name, :email, :message, :user_agent, :ip)
+        """,
+        {
+            "name": (payload.name or "").strip()[:120],
+            "email": (payload.email or "").strip().lower()[:320],
+            "message": payload.message.strip(),
+            "user_agent": (request.headers.get("user-agent") or "")[:500],
+            "ip": ip_addr,
+        },
+    )
+    return {"ok": True}
+
+
+@platform_router.get("/admin/contact-messages")
+async def list_contact_messages(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    unread_only: bool = Query(False),
+    archived: bool = Query(False),
+    _=Depends(get_current_platform_owner),
+):
+    conditions = []
+    if unread_only:
+        conditions.append("read = false")
+    if archived:
+        conditions.append("archived = true")
+    else:
+        conditions.append("archived = false")
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    rows = await platform_fetch_all(
+        f"""
+        SELECT id, name, email, message, read, archived, created_at
+        FROM public.contact_message
+        {where}
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+        """,
+        {"limit": limit, "offset": offset},
+    )
+    return [dict(r) for r in rows]
+
+
+@platform_router.patch("/admin/contact-messages/{msg_id}/read", status_code=204)
+async def mark_contact_message_read(
+    msg_id: uuid.UUID,
+    _=Depends(get_current_platform_owner),
+):
+    await platform_execute(
+        "UPDATE public.contact_message SET read = true WHERE id = :id",
+        {"id": msg_id},
+    )
+
+
+@platform_router.patch("/admin/contact-messages/{msg_id}/archive", status_code=204)
+async def archive_contact_message(
+    msg_id: uuid.UUID,
+    _=Depends(get_current_platform_owner),
+):
+    """Mesajı arşivle (hem okunmuş hem arşivlenmiş olarak işaretle)."""
+    await platform_execute(
+        "UPDATE public.contact_message SET read = true, archived = true WHERE id = :id",
+        {"id": msg_id},
+    )
+
+
+@platform_router.post("/admin/contact-messages/archive-read", status_code=204)
+async def archive_all_read_messages(
+    _=Depends(get_current_platform_owner),
+):
+    """Tüm okunmuş (arşivlenmemiş) mesajları toplu arşivle."""
+    await platform_execute(
+        "UPDATE public.contact_message SET archived = true WHERE read = true AND archived = false",
+        {},
+    )

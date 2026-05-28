@@ -336,24 +336,14 @@ export default function ContentImageManager({
               value={newImage.url}
               onChange={(e) => {
                 setNewImage((prev) => ({ ...prev, url: e.target.value }));
-                if (e.target.value.trim()) {
-                  setSelectedFile(null);
-                }
+                if (e.target.value.trim()) setSelectedFile(null);
               }}
               className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 text-gray-900 dark:text-white"
             />
 
             <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-600 dark:text-gray-400">
-                {t("or_text")}
-              </span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileSelect}
-                className="hidden"
-                id="file-input"
-              />
+              <span className="text-sm text-gray-600 dark:text-gray-400">{t("or_text")}</span>
+              <input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" id="file-input" />
               <label
                 htmlFor="file-input"
                 className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer transition-colors text-sm font-medium"
@@ -362,7 +352,7 @@ export default function ContentImageManager({
                 {t("select_from_computer")}
               </label>
               {selectedFile && (
-                <span className="text-sm text-green-600 dark:text-green-400">
+                <span className="text-sm text-green-600 dark:text-green-400 truncate max-w-[120px]">
                   {selectedFile.name}
                 </span>
               )}
@@ -372,48 +362,24 @@ export default function ContentImageManager({
               type="text"
               placeholder={t("alt_text_optional")}
               value={newImage.alt}
-              onChange={(e) =>
-                setNewImage((prev) => ({ ...prev, alt: e.target.value }))
-              }
+              onChange={(e) => setNewImage((prev) => ({ ...prev, alt: e.target.value }))}
               className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 text-gray-900 dark:text-white"
             />
 
-            <input
-              type="number"
-              placeholder={t("sort_order")}
-              value={newImage.sort_order}
-              onChange={(e) =>
-                setNewImage((prev) => ({
-                  ...prev,
-                  sort_order: Number.parseInt(e.target.value) || 0,
-                }))
-              }
-              className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 text-gray-900 dark:text-white"
-            />
-
-            <div className="grid grid-cols-2 gap-3">
+            {/* Width/Height — hidden on mobile, visible on lg+ */}
+            <div className="hidden lg:grid grid-cols-2 gap-3">
               <input
                 type="number"
                 placeholder={t("width_px")}
                 value={newImage.width}
-                onChange={(e) =>
-                  setNewImage((prev) => ({
-                    ...prev,
-                    width: Number.parseInt(e.target.value) || 200,
-                  }))
-                }
+                onChange={(e) => setNewImage((prev) => ({ ...prev, width: Number.parseInt(e.target.value) || 200 }))}
                 className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 text-gray-900 dark:text-white"
               />
               <input
                 type="number"
                 placeholder={t("height_px")}
                 value={newImage.height}
-                onChange={(e) =>
-                  setNewImage((prev) => ({
-                    ...prev,
-                    height: Number.parseInt(e.target.value) || 150,
-                  }))
-                }
+                onChange={(e) => setNewImage((prev) => ({ ...prev, height: Number.parseInt(e.target.value) || 150 }))}
                 className="w-full rounded-xl border border-gray-300/60 dark:border-gray-700/60 bg-white/90 dark:bg-gray-800/80 px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 text-gray-900 dark:text-white"
               />
             </div>

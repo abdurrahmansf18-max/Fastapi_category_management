@@ -31,7 +31,6 @@ from app.core.observability import (
 from app.db.session import fetch_one
 from app.routers.admin import admin_router
 from app.routers.auth import auth_router
-from app.routers.billing import billing_router, iyzico_webhook_router
 from app.routers.platform import platform_router
 from app.routers.public import public_router
 
@@ -68,6 +67,24 @@ def _route_label(request: Request) -> str:
     if route is not None and hasattr(route, "path"):
         return str(getattr(route, "path"))
     return request.url.path
+
+
+def _content_security_policy() -> str:
+    directives = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "object-src 'none'",
+    ]
+    if settings.IS_PRODUCTION:
+        directives.append("upgrade-insecure-requests")
+    return "; ".join(directives)
 
 
 @app.middleware("http")
@@ -112,6 +129,9 @@ async def request_context_and_metrics(request: Request, call_next):
     return response
 
 
+_SWAGGER_PATHS = {"/docs", "/redoc", "/openapi.json"}
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     start = time.perf_counter()
@@ -121,18 +141,12 @@ async def security_headers(request: Request, call_next):
     response.headers.setdefault("X-XSS-Protection", "1; mode=block")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob: https:; "
-        "font-src 'self' data:; "
-        "connect-src 'self'; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'",
-    )
+    # Swagger UI CDN'den script/style yükler — geliştirmede CSP uygulama
+    if request.url.path not in _SWAGGER_PATHS:
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            _content_security_policy(),
+        )
     if settings.IS_PRODUCTION:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
     response.headers["X-Process-Time-ms"] = f"{(time.perf_counter() - start) * 1000:.2f}"
@@ -186,8 +200,29 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(platform_router)
 app.include_router(public_router)
-app.include_router(billing_router)
-app.include_router(iyzico_webhook_router)
+# Ödeme endpoint'i yoktur. Iyzico için sadece app.core.iyzico yardımcıları
+# tutulur; ileride ödeme eklenecekse yeni router bilinçli olarak eklenmelidir.
+
+
+@app.get("/platform/public-stats")
+async def public_platform_stats():
+    """Public stats endpoint: registered user count and active session count."""
+    from app.db.session import platform_fetch_one as _pfo
+    try:
+        row = await _pfo(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM public.user_account) AS registered_users,
+                (SELECT COUNT(DISTINCT user_id) FROM public.admin_session
+                 WHERE revoked_at IS NULL AND expires_at > NOW()) AS active_sessions
+            """
+        )
+        return {
+            "registered_users": int(row["registered_users"]) if row else 0,
+            "active_sessions": int(row["active_sessions"]) if row else 0,
+        }
+    except Exception:
+        return {"registered_users": 0, "active_sessions": 0}
 
 
 @app.get("/branding")
@@ -211,11 +246,12 @@ async def _db_check() -> tuple[bool, str]:
 
 async def _redis_check() -> tuple[bool, str]:
     try:
-        from redis.asyncio import Redis
+        from app.core.redis_client import get_redis
 
-        redis = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        redis = await get_redis()
+        if not redis:
+            return False, "redis-unavailable"
         await redis.ping()
-        await redis.close()
         return True, "ok"
     except Exception as exc:
         return False, str(exc)

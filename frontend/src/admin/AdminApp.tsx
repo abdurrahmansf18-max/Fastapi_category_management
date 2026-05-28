@@ -2,16 +2,20 @@
 
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '../shared/components/LanguageSwitcher';
-import { AlertTriangle, CheckCircle2, Edit3, Globe2, Moon, Sun, X, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Edit3, Globe2, LogOut, Moon, Sun, X, Zap } from "lucide-react";
 
 // frontend/src/admin/App.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import AdminBottomNav from "./components/AdminBottomNav";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import AdminBottomNav, { type AdminMobileSection } from "./components/AdminBottomNav";
+import AdminAnalyticsDashboard from "./components/AdminAnalyticsDashboard";
 import AdminContentHealth from "./components/AdminContentHealth";
+import AdminRealtimeNotifications from "./components/AdminRealtimeNotifications";
 import AdminSearchInsights from "./components/AdminSearchInsights";
 import AdminUsageBar from "./components/AdminUsageBar";
+import { cx } from "./utils/uiHelpers";
 
 import { useAdminAuth } from "../shared/hooks/useAdminAuth";
+import { localizeBackendError } from "../shared/utils/localizeError";
 import {
   AdminAuth,
   AdminUsersApi,
@@ -61,6 +65,24 @@ import HeadingsView from './views/HeadingsView';
 import ContentsView from './views/ContentsView';
 import AdminUsersView from './views/AdminUsersView';
 import RedirectsView from "./views/RedirectsView";
+import NotificationsView from "./views/NotificationsView";
+
+const mobileSectionIds: Record<AdminMobileSection, string> = {
+  overview: "admin-overview",
+  categories: "admin-categories",
+  headings: "admin-headings",
+  contents: "admin-contents",
+  admins: "admin-users",
+  redirects: "admin-redirects",
+  notifications: "admin-notifications",
+};
+
+function sectionFromHash(hash: string): AdminMobileSection | null {
+  const id = hash.replace(/^#/, "");
+  const match = (Object.entries(mobileSectionIds) as Array<[AdminMobileSection, string]>)
+    .find(([, sectionId]) => sectionId === id);
+  return match?.[0] ?? null;
+}
 
 export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   const { t } = useTranslation();
@@ -124,6 +146,50 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   const [contentImages, setContentImages] = useState<any[]>([]);
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
   const [usage, setUsage] = useState<any>(null);
+  const [activeMobileSection, setActiveMobileSection] =
+    useState<AdminMobileSection>("overview");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncFromHash = () => {
+      const section = sectionFromHash(window.location.hash);
+      if (section) setActiveMobileSection(section);
+    };
+    syncFromHash();
+    window.addEventListener("hashchange", syncFromHash);
+    return () => window.removeEventListener("hashchange", syncFromHash);
+  }, []);
+
+  const selectMobileSection = useCallback((section: AdminMobileSection) => {
+    setActiveMobileSection(section);
+    if (typeof window === "undefined") return;
+
+    const id = mobileSectionIds[section];
+    window.history.replaceState(null, "", `#${id}`);
+    window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    });
+  }, []);
+
+  const sectionClass = useCallback(
+    (section: AdminMobileSection) =>
+      cx("scroll-mt-36", activeMobileSection === section ? "block" : "hidden md:block"),
+    [activeMobileSection]
+  );
+
+  const refreshRealtimeData = useCallback(() => {
+    CategoriesApi.list().then(setCats).catch(() => {});
+    AdminUsageApi.get().then(setUsage).catch(() => {});
+    if (activeCat?.id) {
+      HeadingsApi.list({ level: 1, category_id: activeCat.id }).then(setH1s).catch(() => {});
+    }
+    if (activeH1?.id) {
+      HeadingsApi.list({ level: 2, parent_heading_id: activeH1.id }).then(setH2s).catch(() => {});
+    }
+    if (currentHeadingId) {
+      ContentsApi.list(currentHeadingId).then(setContents).catch(() => {});
+    }
+  }, [activeCat?.id, activeH1?.id, currentHeadingId]);
 
   // fetchers
   const fetchCats = () => CategoriesApi.list().then(setCats);
@@ -238,12 +304,7 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
       await fetchCats();
       showNotification(t("category_added"), "success");
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || t("error");
-      if (String(err?.response?.status) === "409") {
-        showNotification(t("category_exists"), "error");
-      } else {
-        showNotification(`Kategori eklenemedi: ${msg}`, "error");
-      }
+      showNotification(localizeBackendError(err?.message, t), "error");
       throw err;
     }
   }
@@ -506,14 +567,16 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
       (a) => a.email.toLowerCase() === email.toLowerCase()
     );
     if (exists) {
-      showNotification(
-        "Bu e-posta adresi ile zaten bir admin mevcut!",
-        "error"
-      );
+      showNotification(t("admin_email_exists"), "error");
       return;
     }
-    await AdminUsersApi.create(email, password);
-    await fetchAdmins();
+    try {
+      await AdminUsersApi.create(email, password);
+      await fetchAdmins();
+      showNotification(t("success"), "success");
+    } catch (err: any) {
+      showNotification(localizeBackendError(err?.message, t), "error");
+    }
   }
   async function deleteAdmin(id: UUID) {
     const confirmed = await showConfirm(t("delete_admin"), t("delete_admin_desc"));
@@ -583,7 +646,10 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-transparent pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-gray-900 dark:text-gray-100 md:pb-0">
+    <div className="min-h-screen bg-transparent text-gray-900 dark:text-gray-100">
+      {tenantSlug && (
+        <AdminRealtimeNotifications tenantSlug={tenantSlug} onChange={refreshRealtimeData} />
+      )}
       {notification && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div
@@ -788,22 +854,35 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
             </button>
             <button
               onClick={logout}
-              className="h-8 rounded-lg border border-gray-300 bg-transparent px-2 text-[11px] font-semibold text-gray-600 transition-colors hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 dark:border-white/10 dark:bg-white/5 dark:text-gray-400 dark:hover:border-rose-500/40 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 sm:px-3 sm:text-xs"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-transparent text-[11px] font-semibold text-gray-600 transition-colors hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600 dark:border-white/10 dark:bg-white/5 dark:text-gray-400 dark:hover:border-rose-500/40 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 sm:w-auto sm:px-3 sm:text-xs"
+              aria-label={t("logout")}
             >
-              {t('logout')}
+              <LogOut className="h-4 w-4 sm:hidden" />
+              <span className="hidden sm:inline">{t('logout')}</span>
             </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:space-y-8 sm:px-6 sm:py-8 md:pb-8">
-        <AdminUsageBar usage={usage} />
+      <AdminBottomNav
+        activeSection={activeMobileSection}
+        onSelect={selectMobileSection}
+      />
 
-        <AdminContentHealth />
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 pb-8 sm:space-y-8 sm:px-6 sm:py-8">
+        <section id="admin-overview" className={sectionClass("overview")}>
+          <div className="space-y-4 sm:space-y-6">
+            <AdminUsageBar usage={usage} />
 
-        <AdminSearchInsights />
+            <AdminAnalyticsDashboard />
 
-        <section id="admin-categories" className="scroll-mt-32">
+            <AdminContentHealth />
+
+            <AdminSearchInsights />
+          </div>
+        </section>
+
+        <section id="admin-categories" className={sectionClass("categories")}>
           <CategoriesView
             cats={cats}
             activeCat={activeCat}
@@ -821,7 +900,7 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
         </section>
 
         {/* HEADINGS */}
-        <section id="admin-headings" className="scroll-mt-32">
+        <section id="admin-headings" className={sectionClass("headings")}>
           <HeadingsView
             activeCat={activeCat}
             activeH1={activeH1}
@@ -843,7 +922,7 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
         </section>
 
         {/* CONTENTS */}
-        <section id="admin-contents" className="scroll-mt-32">
+        <section id="admin-contents" className={sectionClass("contents")}>
           <ContentsView
             currentHeadingId={currentHeadingId}
             selectedContent={selectedContent}
@@ -861,7 +940,7 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
         </section>
 
         {/* ADMIN USERS */}
-        <section id="admin-users" className="scroll-mt-32">
+        <section id="admin-users" className={sectionClass("admins")}>
           <AdminUsersView
             admins={admins}
             changeAdminPassword={changeAdminPassword}
@@ -872,12 +951,15 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
         </section>
 
         {/* REDIRECT RULES */}
-        <section id="admin-redirects" className="scroll-mt-32">
+        <section id="admin-redirects" className={sectionClass("redirects")}>
           <RedirectsView showNotification={showNotification} />
         </section>
-      </main>
 
-      <AdminBottomNav tenantSlug={tenantSlug} />
+        {/* NOTIFICATIONS (feedback) */}
+        <div className={sectionClass("notifications")}>
+          <NotificationsView tenantSlug={tenantSlug} />
+        </div>
+      </main>
     </div>
   );
 }

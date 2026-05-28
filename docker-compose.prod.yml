@@ -1,6 +1,10 @@
+name: fastapi-prod
+
 services:
   caddy:
-    image: caddy:2.9-alpine
+    build:
+      context: ./infra/caddy
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "80:80"
@@ -8,13 +12,16 @@ services:
     environment:
       - APP_DOMAIN=${APP_DOMAIN}
       - ACME_EMAIL=${ACME_EMAIL}
+      - CROWDSEC_BOUNCER_API_KEY=${CROWDSEC_BOUNCER_API_KEY}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - caddy_logs:/var/log/caddy
     depends_on:
       - frontend
       - backend
+      - crowdsec
 
   frontend:
     build:
@@ -29,8 +36,15 @@ services:
       - NEXT_INTERNAL_API_BASE=http://backend:8000
       - NEXT_PUBLIC_API_BASE=/api
       - NEXT_PUBLIC_SITE_URL=https://${APP_DOMAIN}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   backend:
     build:
@@ -38,15 +52,15 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      - ENVIRONMENT=production
+      - ENVIRONMENT=${ENVIRONMENT:-production}
       - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - MEILISEARCH_URL=http://meilisearch:7700
       - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
       - APP_PUBLIC_BASE_URL=https://${APP_DOMAIN}
       - API_PUBLIC_PREFIX=/api
-      - CORS_ORIGINS=https://${APP_DOMAIN}
-      - TRUSTED_HOSTS=${APP_DOMAIN},backend,localhost,127.0.0.1
+      - 'CORS_ORIGINS=["https://${APP_DOMAIN}"]'
+      - 'TRUSTED_HOSTS=["${APP_DOMAIN}","backend","localhost","127.0.0.1"]'
       - SECRET_KEY=${SECRET_KEY}
       - COOKIE_SECURE=true
       - PUBLIC_CACHE_ETAG_MAX_BYTES=${PUBLIC_CACHE_ETAG_MAX_BYTES:-262144}
@@ -55,12 +69,6 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM=${SMTP_FROM}
-      - IYZICO_API_KEY=${IYZICO_API_KEY}
-      - IYZICO_SECRET_KEY=${IYZICO_SECRET_KEY}
-      - IYZICO_MERCHANT_ID=${IYZICO_MERCHANT_ID}
-      - IYZICO_BASE_URL=${IYZICO_BASE_URL:-https://api.iyzipay.com}
-      - IYZICO_SUBSCRIPTION_PLAN_REF=${IYZICO_SUBSCRIPTION_PLAN_REF}
-      - IYZICO_CALLBACK_BASE_URL=${IYZICO_CALLBACK_BASE_URL:-https://${APP_DOMAIN}}
       - SENTRY_DSN=${SENTRY_DSN}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}
       - SENTRY_RELEASE=${SENTRY_RELEASE:-docs-platform}
@@ -74,15 +82,28 @@ services:
       - PLATFORM_OWNER_EMAIL=${PLATFORM_OWNER_EMAIL}
       - PLATFORM_OWNER_PASSWORD_HASH=${PLATFORM_OWNER_PASSWORD_HASH}
       - PLATFORM_OWNER_TOTP_SECRET=${PLATFORM_OWNER_TOTP_SECRET}
+      # Güvenilir proxy katman sayısı (Caddy=1)
+      - TRUSTED_PROXY_COUNT=1
+      # Redis Sentinel — boş bırakılırsa REDIS_URL doğrudan kullanılır
+      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      - REDIS_SENTINEL_MASTER=mymaster
     volumes:
       - uploads:/app/uploads
       - ops_status:/ops-status:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
-        condition: service_started
+        condition: service_healthy
       meilisearch:
+        condition: service_healthy
+      pgbouncer:
         condition: service_started
 
   migrate:
@@ -92,25 +113,19 @@ services:
     restart: "no"
     command: ["python", "run_migration.py"]
     environment:
-      - ENVIRONMENT=production
+      - ENVIRONMENT=${ENVIRONMENT:-production}
       - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
       - SECRET_KEY=${SECRET_KEY}
       - APP_PUBLIC_BASE_URL=https://${APP_DOMAIN}
       - API_PUBLIC_PREFIX=/api
-      - CORS_ORIGINS=https://${APP_DOMAIN}
-      - TRUSTED_HOSTS=${APP_DOMAIN},backend,localhost,127.0.0.1
+      - 'CORS_ORIGINS=["https://${APP_DOMAIN}"]'
+      - 'TRUSTED_HOSTS=["${APP_DOMAIN}","backend","localhost","127.0.0.1"]'
       - COOKIE_SECURE=true
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM=${SMTP_FROM}
-      - IYZICO_API_KEY=${IYZICO_API_KEY}
-      - IYZICO_SECRET_KEY=${IYZICO_SECRET_KEY}
-      - IYZICO_MERCHANT_ID=${IYZICO_MERCHANT_ID}
-      - IYZICO_BASE_URL=${IYZICO_BASE_URL:-https://api.iyzipay.com}
-      - IYZICO_SUBSCRIPTION_PLAN_REF=${IYZICO_SUBSCRIPTION_PLAN_REF}
-      - IYZICO_CALLBACK_BASE_URL=${IYZICO_CALLBACK_BASE_URL:-https://${APP_DOMAIN}}
       - MEILISEARCH_URL=http://meilisearch:7700
       - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
       - SENTRY_DSN=${SENTRY_DSN}
@@ -135,7 +150,7 @@ services:
     restart: unless-stopped
     command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
     environment:
-      - ENVIRONMENT=production
+      - ENVIRONMENT=${ENVIRONMENT:-production}
       - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - MEILISEARCH_URL=http://meilisearch:7700
@@ -146,12 +161,8 @@ services:
       - SENTRY_RELEASE=${SENTRY_RELEASE:-docs-platform}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-180}
-      - IYZICO_API_KEY=${IYZICO_API_KEY}
-      - IYZICO_SECRET_KEY=${IYZICO_SECRET_KEY}
-      - IYZICO_MERCHANT_ID=${IYZICO_MERCHANT_ID}
-      - IYZICO_BASE_URL=${IYZICO_BASE_URL:-https://api.iyzipay.com}
-      - IYZICO_SUBSCRIPTION_PLAN_REF=${IYZICO_SUBSCRIPTION_PLAN_REF}
-      - IYZICO_CALLBACK_BASE_URL=${IYZICO_CALLBACK_BASE_URL:-https://${APP_DOMAIN}}
+      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      - REDIS_SENTINEL_MASTER=mymaster
     volumes:
       - uploads:/app/uploads
     depends_on:
@@ -164,15 +175,17 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=INFO"]
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
     environment:
-      - ENVIRONMENT=production
+      - ENVIRONMENT=${ENVIRONMENT:-production}
       - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-180}
       - SENTRY_DSN=${SENTRY_DSN}
+      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      - REDIS_SENTINEL_MASTER=mymaster
     depends_on:
       - redis
       - worker
@@ -186,6 +199,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=200", "-c", "log_min_duration_statement=500"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   pgbouncer:
     image: edoburu/pgbouncer:latest
@@ -205,9 +224,69 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command:
+      - redis-server
+      - --appendonly yes
+      - --appendfsync everysec
+      - --save 900 1
+      - --save 300 10
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis-replica:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --replicaof redis 6379
+      - --appendonly yes
+      - --appendfsync everysec
+    volumes:
+      - redis_replica_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  redis-sentinel-1: &sentinel
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./infra/redis/sentinel.conf:/etc/redis/sentinel.conf
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
+
+  redis-sentinel-2:
+    <<: *sentinel
+
+  redis-sentinel-3:
+    <<: *sentinel
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    expose:
+      - "9121"
+    depends_on:
+      redis:
+        condition: service_healthy
 
   meilisearch:
     image: getmeili/meilisearch:v1.12
@@ -217,16 +296,43 @@ services:
       - MEILI_ENV=production
     volumes:
       - meili_data:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7700/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=15d"
+    depends_on:
+      - alertmanager
+
+  alertmanager:
+    build:
+      context: ./infra/alertmanager
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - ALERTMANAGER_SMTP_HOST=${SMTP_HOST}
+      - ALERTMANAGER_SMTP_PORT=${SMTP_PORT:-587}
+      - ALERTMANAGER_SMTP_USER=${SMTP_USER}
+      - ALERTMANAGER_SMTP_PASSWORD=${SMTP_PASSWORD}
+      - ALERTMANAGER_SMTP_FROM=${SMTP_FROM}
+      - ALERTMANAGER_ADMIN_EMAIL=${PLATFORM_OWNER_EMAIL}
+    volumes:
+      - ./infra/alertmanager/alertmanager.yml.tpl:/etc/alertmanager/alertmanager.yml.tpl:ro
+      - alertmanager_data:/alertmanager
+    expose:
+      - "9093"
 
   grafana:
     image: grafana/grafana:11.3.1
@@ -268,6 +374,9 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
       - RESTIC_PASSWORD=${RESTIC_PASSWORD}
+      # Meilisearch native snapshot için
+      - MEILISEARCH_URL=http://meilisearch:7700
+      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - OPS_STATUS_DIR=/ops-status
@@ -278,6 +387,27 @@ services:
       - ops_status:/ops-status
     depends_on:
       - postgres
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:latest
+    restart: unless-stopped
+    environment:
+      # Caddy HTTP + HTTP saldırı tespiti koleksiyonları
+      - COLLECTIONS=crowdsecurity/caddy crowdsecurity/http-dos crowdsecurity/base-http-scenarios
+      - GID=1000
+    volumes:
+      - ./infra/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+      - caddy_logs:/var/log/caddy:ro
+      - crowdsec_data:/var/lib/crowdsec/data
+      - crowdsec_config:/etc/crowdsec
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "cscli", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   restore-check:
     image: alpine:3.21
@@ -296,11 +426,20 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  caddy_logs:
   postgres_data:
+    name: fastapi_postgres_data
   redis_data:
+    name: fastapi_redis_data
+  redis_replica_data:
   meili_data:
+    name: fastapi_meili_data
   prometheus_data:
+  alertmanager_data:
   grafana_data:
   loki_data:
   uploads:
+    name: fastapi_uploads
   ops_status:
+  crowdsec_data:
+  crowdsec_config:

@@ -1,0 +1,142 @@
+groups:
+  # ─── Servis Erişilebilirlik ───────────────────────────────────────────────
+  - name: availability
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend servisi yanıt vermiyor"
+          description: "Backend (FastAPI) {{ $labels.instance }} en az 1 dakikadır erişilemiyor."
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(http_requests_total{job="backend", status=~"5.."}[5m])
+            /
+            rate(http_requests_total{job="backend"}[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP hata oranı yüksek"
+          description: "Son 5 dakikada HTTP 5xx oranı %{{ $value | humanizePercentage }} (eşik: %5)."
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_request_duration_seconds_bucket{job="backend"}[5m])
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API yanıt süresi çok yüksek"
+          description: "P99 latency {{ $value | humanizeDuration }} (eşik: 2s)."
+
+  # ─── Yedekleme Durumu ─────────────────────────────────────────────────────
+  - name: backup
+    rules:
+      - alert: BackupFailed
+        # ops-status/backup.json dosyasından Prometheus metric okuyamıyoruz doğrudan;
+        # bunun yerine backend /api/ops/status endpoint'i üzerinden metrik çekilir.
+        # Şu anki yapıda: backend job'u üzerinden custom gauge gerekir.
+        # Aşağıdaki kural backup metriği mevcut ise çalışır.
+        expr: docs_platform_backup_ok == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Yedekleme başarısız"
+          description: "Son yedekleme işlemi başarısız oldu. Restic loglarını kontrol et."
+
+      - alert: BackupMissing
+        expr: absent(docs_platform_backup_ok)
+        for: 26h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Yedekleme metriği bulunamadı"
+          description: "docs_platform_backup_ok metriği 26 saattir görünmüyor — backup container sorunlu olabilir."
+
+  # ─── Redis ────────────────────────────────────────────────────────────────
+  - name: redis
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis erişilemiyor"
+          description: "Redis {{ $labels.instance }} en az 1 dakikadır down."
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_maxmemory_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis bellek kullanımı yüksek"
+          description: "Redis bellek kullanımı %{{ $value | humanizePercentage }} (eşik: %85)."
+
+  # ─── Disk Alanı ───────────────────────────────────────────────────────────
+  - name: disk
+    rules:
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/", fstype!="tmpfs"}
+            /
+            node_filesystem_size_bytes{mountpoint="/", fstype!="tmpfs"}
+          ) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk alanı azalıyor"
+          description: "Kök dosya sistemi boş alan: {{ $value | humanizePercentage }} (eşik: %15)."
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/", fstype!="tmpfs"}
+            /
+            node_filesystem_size_bytes{mountpoint="/", fstype!="tmpfs"}
+          ) < 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk alanı kritik seviyede"
+          description: "Kök dosya sistemi boş alan kritik: {{ $value | humanizePercentage }} kaldı — disk dolmak üzere!"
+
+  # ─── Bellek ───────────────────────────────────────────────────────────────
+  - name: memory
+    rules:
+      - alert: MemoryHigh
+        expr: |
+          (
+            node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes
+          ) / node_memory_MemTotal_bytes > 0.90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bellek kullanımı yüksek"
+          description: "Sunucu bellek kullanımı %{{ $value | humanizePercentage }} (eşik: %90)."
+
+  # ─── Prometheus Kendisi ───────────────────────────────────────────────────
+  - name: prometheus
+    rules:
+      - alert: PrometheusConfigReloadFailed
+        expr: prometheus_config_last_reload_successful == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus config yeniden yüklenemedi"
+          description: "Prometheus konfigürasyon dosyası geçersiz — son reload başarısız."

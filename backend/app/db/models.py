@@ -3,7 +3,7 @@ from sqlalchemy import (
     MetaData, Table, Column, CheckConstraint, ForeignKey,
     Text, Integer, SmallInteger, BigInteger, Boolean
 )
-from sqlalchemy.dialects.postgresql import UUID, CITEXT, TIMESTAMP
+from sqlalchemy.dialects.postgresql import UUID, CITEXT, TIMESTAMP, INET
 from sqlalchemy.sql import func, text
 from sqlalchemy.schema import Index
 
@@ -124,6 +124,19 @@ redirect_rule = Table(
     CheckConstraint("status_code IN (301,302,307,308)", name="redirect_status_code_ck"),
 )
 
+page_view_event = Table(
+    "page_view_event", metadata,
+    Column("id", UUID(as_uuid=True), primary_key=True,
+           server_default=text("gen_random_uuid()")),
+    Column("tenant_id", UUID(as_uuid=True), nullable=False),
+    Column("url", Text, nullable=False),
+    Column("title", Text, nullable=False, server_default=text("''")),
+    Column("content_id", UUID(as_uuid=True)),
+    Column("user_agent", Text),
+    Column("ip", INET),
+    Column("created_at", TIMESTAMP(timezone=True), nullable=False, server_default=func.now()),
+)
+
 # ==============
 # Indexes (DDL ile aynı)
 # ==============
@@ -171,6 +184,8 @@ Index(
 )
 Index("idx_content_attachment_order", content_attachment.c.content_id, content_attachment.c.sort_order, content_attachment.c.id)
 Index("idx_redirect_rule_active_source", redirect_rule.c.is_active, redirect_rule.c.source_path)
+Index("idx_page_view_event_tenant_time", page_view_event.c.tenant_id, page_view_event.c.created_at.desc())
+Index("idx_page_view_event_tenant_url", page_view_event.c.tenant_id, page_view_event.c.url)
 
 # TRGM arama index'leri (pg_trgm yüklü olmalı)
 Index(

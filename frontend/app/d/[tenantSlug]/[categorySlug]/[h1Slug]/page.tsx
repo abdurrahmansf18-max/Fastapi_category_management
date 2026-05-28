@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeSanitize from "rehype-sanitize";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { apiGet, siteUrl, tenantSettings, toPublicUrl } from "../../../../lib/api";
 import { publicCopy, resolvePublicLang } from "../../../../lib/server-i18n";
 import CopyPageLinkButton from "../../CopyPageLinkButton";
@@ -14,10 +15,20 @@ import PublicHeader from "../../PublicHeader";
 import BackToTop from "../../BackToTop";
 import MarkdownPre from "../../MarkdownPre";
 import CategorySidebar from "../../CategorySidebar";
+import PageViewTracker from "../../PageViewTracker";
 
 export const revalidate = 60;
 
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    img: [...(defaultSchema.attributes?.img ?? []), "src", "alt", "width", "height", "loading", "decoding"],
+  },
+};
+
 type Heading = { id: string; title: string; slug: string; level: number; sort_order: number };
+type ContentImage = { id: string; url: string; alt: string; sort_order: number; width?: number; height?: number };
 type ContentAttachment = {
   id: string;
   content_id: string;
@@ -33,6 +44,7 @@ type Content = {
   heading_id: string;
   body: string;
   description?: string;
+  images?: ContentImage[];
   attachments?: ContentAttachment[];
 };
 type RouteParams = { tenantSlug: string; categorySlug: string; h1Slug: string };
@@ -77,6 +89,27 @@ function linkedHeading(level: 1 | 2 | 3 | 4, children: ReactNode, label: string)
   return <h4 id={id} className="group">{content}</h4>;
 }
 
+function injectImages(body: string, images: ContentImage[]): string {
+  let index = 0;
+  return body.replace(/<--image-->/g, () => {
+    const image = images[index++];
+    if (!image) return "";
+    const widthAttr = image.width ? ` width="${image.width}"` : "";
+    const heightAttr = image.height ? ` height="${image.height}"` : "";
+    return `<img src="${image.url}" alt="${image.alt || "image"}"${widthAttr}${heightAttr} loading="lazy" decoding="async" />`;
+  });
+}
+
+function injectFiles(body: string, attachments: ContentAttachment[]): string {
+  let index = 0;
+  return body.replace(/<--file-->/g, () => {
+    const att = attachments[index++];
+    if (!att) return "";
+    const label = att.label || att.file_name;
+    return `<a href="${att.url}" target="_blank" rel="noreferrer noopener">📎 ${label}</a>`;
+  });
+}
+
 async function loadH1(params: RouteParams) {
   const headings = await apiGet<Heading[]>(
     `/t/${params.tenantSlug}/categories/${params.categorySlug}/headings`,
@@ -94,21 +127,25 @@ async function loadH1(params: RouteParams) {
     : [[], []];
 
   const contentRows = contents || [];
-  const attachmentsByContent = await Promise.all(
+  const contentAssets = await Promise.all(
     contentRows.map(async (content) => {
-      const attachments =
-        (await apiGet<ContentAttachment[]>(`/t/${params.tenantSlug}/contents/${content.id}/attachments`, 60)) || [];
-      return [
-        content.id,
-        attachments.map((item) => ({ ...item, url: toPublicUrl(item.url) || item.url })),
-      ] as const;
+      const [attachments, images] = await Promise.all([
+        apiGet<ContentAttachment[]>(`/t/${params.tenantSlug}/contents/${content.id}/attachments`, 60),
+        apiGet<ContentImage[]>(`/t/${params.tenantSlug}/contents/${content.id}/images`, 60),
+      ]);
+      return {
+        contentId: content.id,
+        attachments: (attachments || []).map((item) => ({ ...item, url: toPublicUrl(item.url) || item.url })),
+        images: (images || []).map((item) => ({ ...item, url: toPublicUrl(item.url) || item.url })),
+      };
     })
   );
 
-  const attachmentMap = new Map(attachmentsByContent);
+  const assetMap = new Map(contentAssets.map((item) => [item.contentId, item]));
   const hydrated = contentRows.map((content) => ({
     ...content,
-    attachments: attachmentMap.get(content.id) || [],
+    attachments: assetMap.get(content.id)?.attachments || [],
+    images: assetMap.get(content.id)?.images || [],
   }));
 
   return { h1, children: children || [], contents: hydrated };
@@ -174,13 +211,20 @@ export default async function PublicH1Page({ params }: { params: Promise<RoutePa
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: siteTitle, item: siteUrl(`/d/${resolved.tenantSlug}`) },
-      { "@type": "ListItem", position: 2, name: data.h1.title, item: pageUrl },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: categoryEntry?.name || resolved.categorySlug,
+        item: siteUrl(`/d/${resolved.tenantSlug}?cat=${resolved.categorySlug}`),
+      },
+      { "@type": "ListItem", position: 3, name: data.h1.title, item: pageUrl },
     ],
   };
 
   return (
     <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
+      <PageViewTracker tenantSlug={resolved.tenantSlug} title={data.h1.title} contentId={data.contents[0]?.id} />
 
       <PublicHeader
         tenantSlug={resolved.tenantSlug}
@@ -221,12 +265,32 @@ export default async function PublicH1Page({ params }: { params: Promise<RoutePa
               </div>
 
               {/* H1-level prose content */}
-              {data.contents.map((content) => (
+              {data.contents.map((content) => {
+                const allAttachments = content.attachments || [];
+                const fileMarkerCount = (content.body.match(/<--file-->/g) || []).length;
+                // Attachments consumed by inline <--file--> markers
+                const inlineAttachments = allAttachments.slice(0, fileMarkerCount);
+                // Remaining attachments shown at bottom
+                const bottomAttachments = allAttachments.slice(fileMarkerCount);
+
+                let renderedBody = content.images?.length
+                  ? injectImages(content.body, content.images)
+                  : content.body;
+                if (fileMarkerCount > 0) {
+                  renderedBody = injectFiles(renderedBody, inlineAttachments);
+                }
+
+                return (
                 <div key={content.id} className="mb-8 last:mb-0">
+                  {content.description && (
+                    <p className="mb-5 rounded-xl border border-emerald-200/60 bg-emerald-50/60 px-4 py-3 text-sm leading-relaxed text-emerald-800 dark:border-emerald-700/30 dark:bg-emerald-900/15 dark:text-emerald-300">
+                      {content.description}
+                    </p>
+                  )}
                   <div className="prose prose-gray max-w-none dark:prose-invert prose-headings:scroll-mt-28 prose-headings:font-semibold prose-a:text-emerald-600 prose-a:no-underline hover:prose-a:underline dark:prose-a:text-emerald-400 prose-code:rounded-md prose-code:bg-slate-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-sm prose-code:font-normal prose-code:text-slate-800 dark:prose-code:bg-gray-800 dark:prose-code:text-gray-200 prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-100 prose-pre:text-slate-800 dark:prose-pre:border-gray-700 dark:prose-pre:bg-gray-900 dark:prose-pre:text-gray-100 [&_pre_code]:bg-transparent [&_pre_code]:text-inherit prose-img:rounded-xl prose-blockquote:border-l-emerald-400 prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 lg:prose-base">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeSanitize]}
+                      rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
                       components={{
                         h1: ({ children }) => linkedHeading(1, children, labels.copyLink),
                         h2: ({ children }) => linkedHeading(2, children, labels.copyLink),
@@ -244,17 +308,17 @@ export default async function PublicH1Page({ params }: { params: Promise<RoutePa
                         ),
                       }}
                     >
-                      {content.body}
+                      {renderedBody}
                     </ReactMarkdown>
                   </div>
 
-                  {(content.attachments || []).length > 0 && (
+                  {bottomAttachments.length > 0 && (
                     <section className="mt-4 rounded-xl border border-gray-100 bg-gray-50/70 p-3 dark:border-gray-800 dark:bg-gray-950/40">
                       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                         {labels.attachments}
                       </h3>
                       <ul className="space-y-2">
-                        {(content.attachments || []).map((attachment) => (
+                        {bottomAttachments.map((attachment) => (
                           <li key={attachment.id} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
                             <a
                               href={attachment.url}
@@ -273,7 +337,8 @@ export default async function PublicH1Page({ params }: { params: Promise<RoutePa
                     </section>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {/* H2 sub-pages as card grid */}
               {data.children.length > 0 && (

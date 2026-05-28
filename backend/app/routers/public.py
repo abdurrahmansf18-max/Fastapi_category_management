@@ -29,6 +29,7 @@ from app.core.tenancy import get_tenant_context
 from app.core.rate_limit import enforce_rate_limit
 from app.core.cache import cache_get_json, cache_set_json, tenant_public_cache_prefix
 from app.core.search import record_search_event, search_tenant, suggest_tenant, tenant_seo_urls
+from app.core.config import settings
 
 public_router = APIRouter(
     prefix="/t/{tenant_slug}",
@@ -41,6 +42,12 @@ class FeedbackIn(BaseModel):
     rating: str = Field(pattern="^(helpful|not_helpful)$")
     url: str = Field(min_length=1, max_length=500)
     message: str | None = Field(default=None, max_length=1000)
+
+
+class PageViewIn(BaseModel):
+    url: str = Field(min_length=1, max_length=500)
+    title: str = Field(default="", max_length=200)
+    content_id: UUID | None = None
 
 
 def _resolve_site_settings(settings: dict, tenant) -> dict:
@@ -183,6 +190,7 @@ async def get_page(category_slug: str, h1_slug: str, h2_slug: str):
 
     stmt = (
         select(
+            ct.c.id.label("content_id"),
             c.c.slug.label("category"),
             h1.c.slug.label("h1"),
             h2.c.slug.label("h2"),
@@ -218,32 +226,38 @@ async def list_public_contents(heading_id: UUID = Query(..., description="L1 vey
 # ---- Content Images (Public) ----
 
 def _abs_url(request: Request, url: str) -> str:
-    """Return absolute URL suitable for current host (localhost/ngrok/prod).
+    """Stored path → root-relative URL served through Next.js proxy.
 
-    - If stored URL is absolute and points to localhost/127.0.0.1, rewrite to current host.
-    - If stored URL is relative and starts with /static, prepend /api for Vite proxy consistency.
-    - Otherwise, join with current base URL.
+    Returns /api/static/... so the browser resolves it against whatever
+    origin the user opened the page from (localhost, Cloudflare tunnel,
+    production domain — all work without any config change).
+
+    • Relative /static/...             → /api/static/...
+    • Absolute .../api/static/... path → /api/static/...  (old Docker URLs)
+    • Absolute .../static/... path     → /api/static/...
+    • External absolute URL            → returned unchanged
     """
-    try:
-        if url.startswith("http://") or url.startswith("https://"):
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            if parsed.hostname in {"localhost", "127.0.0.1"}:
-                base = str(request.base_url).rstrip("/")
-                path = parsed.path
-                if path.startswith("/static/"):
-                    return f"{base}/api{path}"
-                return f"{base}{path}"
-            return url
-    except Exception:
+    if not url:
         return url
 
-    base = str(request.base_url).rstrip("/")
+    if url.startswith("http://") or url.startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+            path = urlparse(url).path
+            if path.startswith("/api/static/"):
+                return path
+            if path.startswith("/static/"):
+                return f"/api{path}"
+        except Exception:
+            pass
+        return url  # External URL — leave unchanged
+
+    # Relative path
     if url.startswith("/static/"):
-        return f"{base}/api{url}"
+        return f"/api{url}"
     if not url.startswith("/"):
         url = "/" + url
-    return f"{base}{url}"
+    return url
 
 
 @public_router.get("/contents/{id}/images", response_model=List[ContentImageOut])
@@ -628,6 +642,34 @@ async def seo_pages():
     }
 
 
+@public_router.post("/analytics/page-view", status_code=202)
+async def record_page_view(payload: PageViewIn, request: Request):
+    tenant = get_tenant_context()
+    await enforce_rate_limit(
+        request,
+        scope="public-page-view",
+        limit=tenant.public_rate_limit,
+        tenant_slug=tenant.slug,
+    )
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",", 1)[0].strip() if forwarded else (request.client.host if request.client else None)
+    await platform_execute(
+        """
+        INSERT INTO public.page_view_event (tenant_id, url, title, content_id, user_agent, ip)
+        VALUES (:tenant_id, :url, :title, CAST(:content_id AS uuid), :user_agent, CAST(:ip AS inet))
+        """,
+        {
+            "tenant_id": tenant.id,
+            "url": payload.url[:500],
+            "title": payload.title[:200],
+            "content_id": str(payload.content_id) if payload.content_id else None,
+            "user_agent": request.headers.get("user-agent", "")[:500],
+            "ip": ip,
+        },
+    )
+    return {"ok": True}
+
+
 @public_router.post("/feedback", status_code=201)
 async def create_feedback(payload: FeedbackIn, request: Request):
     tenant = get_tenant_context()
@@ -655,15 +697,20 @@ async def create_feedback(payload: FeedbackIn, request: Request):
 
 
 @public_router.get("/settings")
-async def get_site_settings():
+async def get_site_settings(request: Request):
     tenant = get_tenant_context()
     cache_key = f"{tenant_public_cache_prefix(tenant.id)}settings"
     cached = await cache_get_json(cache_key)
     if cached is not None:
-        return _resolve_site_settings(cached, tenant)
+        result = _resolve_site_settings(cached, tenant)
+        if result.get("site_logo"):
+            result["site_logo"] = _abs_url(request, result["site_logo"])
+        return result
 
     rows = await fetch_all("SELECT key, value FROM site_setting")
-    settings = {row["key"]: row["value"] for row in rows}
-    settings = _resolve_site_settings(settings, tenant)
-    await cache_set_json(cache_key, settings, ttl_seconds=300)
-    return settings
+    raw = {row["key"]: row["value"] for row in rows}
+    await cache_set_json(cache_key, raw, ttl_seconds=300)  # cache relative paths
+    result = _resolve_site_settings(raw, tenant)
+    if result.get("site_logo"):
+        result["site_logo"] = _abs_url(request, result["site_logo"])
+    return result

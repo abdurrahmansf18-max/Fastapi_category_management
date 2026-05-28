@@ -102,6 +102,10 @@ function buildHeaders(
 }
 
 function normalizeFastApiError(obj: any): string | null {
+  // Custom error format: {"error":{"code":"...","message":"..."}}
+  if (obj?.error?.message && typeof obj.error.message === "string") {
+    return obj.error.message;
+  }
   // FastAPI: {"detail":"..."} ya da {"detail":[{msg:"..."}]}
   const d = obj?.detail;
   if (!d) return null;
@@ -122,14 +126,15 @@ async function handleResponse<T>(res: Response, expect?: Expect): Promise<T> {
     setAdminToken(null);
   }
   if (!res.ok) {
-    // 1) JSON dene ve FastAPI detail çıkar
+    // 1) JSON dene ve error message çıkar
+    let errMsg: string | null = null;
     try {
       const data = await res.clone().json();
-      const msg = normalizeFastApiError(data);
-      if (msg) throw new Error(msg);
+      errMsg = normalizeFastApiError(data);
     } catch {
       /* ignore json parse */
     }
+    if (errMsg) throw new Error(errMsg);
     // 2) Text fallback
     let msg = "";
     try {

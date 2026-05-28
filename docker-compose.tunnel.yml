@@ -1,6 +1,13 @@
 # Cloudflare Quick Tunnel — geçici public URL için
 # Bu dosya frontend servisi Docker içinde çalışırken kullanılır.
 # (local + dev compose ile uyumlu)
+#
+# Kullanım:
+#   docker compose --env-file .env.local -f docker-compose.local.yml -f docker-compose.dev.yml -f docker-compose.tunnel.yml up -d cloudflared
+#   docker compose --env-file .env.local -f docker-compose.local.yml -f docker-compose.dev.yml -f docker-compose.tunnel.yml logs -f cloudflared
+#
+# Kısa yol:
+#   .\scripts\start-local-tunnel.ps1
 
 services:
   cloudflared:

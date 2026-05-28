@@ -7,13 +7,16 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import APIRouter, HTTPException, Query, Request, Response
+from app.core.observability import get_logger
+
+logger = get_logger()
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy import text
 
 from app.core.config import ALGORITHM, SECRET_KEY, settings
 from app.core.audit import log_audit_event
 from app.core.csrf import issue_csrf_token, set_admin_auth_cookies
-from app.core.email import send_verification_email, smtp_configured
+from app.core.email import send_password_reset_email, send_verification_email, smtp_configured
 from app.core.rate_limit import enforce_rate_limit
 from app.core.security import create_access_token, pwd_context
 from app.core.sessions import create_admin_session, issue_refresh_token
@@ -22,6 +25,10 @@ from app.db.session import engine, platform_execute, platform_fetch_all, platfor
 from app.schemas import (
     AuthLoginIn,
     AuthLoginOut,
+    ForgotPasswordIn,
+    ForgotPasswordOut,
+    ResetPasswordIn,
+    ResetPasswordOut,
     SignupIn,
     SignupOut,
     VerifyEmailIn,
@@ -128,7 +135,13 @@ async def signup(payload: SignupIn, request: Request):
             detail="Email or workspace slug already exists",
         ) from exc
 
-    send_verification_email(payload.email, verification_link)
+    try:
+        send_verification_email(payload.email, verification_link)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "email.verification.send_failed",
+            extra={"props": {"to_email": payload.email, "error": str(exc), "verification_link": verification_link}},
+        )
     await log_audit_event(
         action="auth.signup_created",
         request=request,
@@ -328,6 +341,11 @@ async def select_workspace(payload: WorkspaceSelectIn, request: Request, respons
         settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
+    # Update last login timestamp
+    await platform_execute(
+        "UPDATE public.user_account SET last_login_at = NOW() WHERE id = :uid",
+        {"uid": row["user_id"]},
+    )
     await log_audit_event(
         action="auth.workspace_selected",
         actor_user_id=str(row["user_id"]),
@@ -341,6 +359,99 @@ async def select_workspace(payload: WorkspaceSelectIn, request: Request, respons
         "tenant_slug": row["tenant_slug"],
     }
 
+
+@auth_router.get("/verification-status")
+async def verification_status(tenant_slug: str = Query(..., pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")):
+    """Tenant slug'ının doğrulama durumunu kontrol et. (Kamuya açık bilgi)"""
+    row = await platform_fetch_one(
+        "SELECT status FROM public.tenant WHERE slug = :slug",
+        {"slug": tenant_slug},
+    )
+    return {"verified": bool(row and row["status"] == "active")}
+
+
+@auth_router.post("/forgot-password", response_model=ForgotPasswordOut)
+async def forgot_password(payload: ForgotPasswordIn, request: Request):
+    """Şifre sıfırlama bağlantısı gönder. Güvenlik için e-posta kayıtlı olsa da olmasa da aynı yanıtı döner."""
+    await enforce_rate_limit(request, scope="forgot-password", limit=5)
+
+    user = await platform_fetch_one(
+        "SELECT id, email FROM public.user_account WHERE email = :email",
+        {"email": payload.email},
+    )
+
+    if user:
+        # Önceki kullanılmamış tokenları geçersiz kıl
+        await platform_execute(
+            "DELETE FROM public.password_reset_token WHERE user_id = :uid AND consumed_at IS NULL",
+            {"uid": user["id"]},
+        )
+        token = secrets.token_urlsafe(32)
+        token_hash = _hash_token(token)
+        await platform_execute(
+            """
+            INSERT INTO public.password_reset_token (user_id, token_hash, expires_at)
+            VALUES (:uid, :token_hash, :expires_at)
+            """,
+            {
+                "uid": user["id"],
+                "token_hash": token_hash,
+                "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            },
+        )
+        reset_link = f"{settings.APP_PUBLIC_BASE_URL.rstrip('/')}/reset-password?token={token}"
+        try:
+            send_password_reset_email(user["email"], reset_link)
+        except Exception as exc:
+            logger.warning(
+                "email.password_reset.send_failed",
+                extra={"props": {"to_email": user["email"], "error": str(exc), "reset_link": reset_link}},
+            )
+        await log_audit_event(
+            action="auth.forgot_password_requested",
+            request=request,
+            metadata={"email": payload.email},
+        )
+
+    # Güvenlik: her zaman aynı yanıt
+    return {"message": "If that email is registered, a reset link has been sent."}
+
+
+@auth_router.post("/reset-password", response_model=ResetPasswordOut)
+async def reset_password(payload: ResetPasswordIn, request: Request):
+    """Token ile yeni şifre belirle."""
+    await enforce_rate_limit(request, scope="reset-password", limit=10)
+    token_hash = _hash_token(payload.token)
+    row = await platform_fetch_one(
+        """
+        SELECT prt.id AS token_id, prt.expires_at, prt.consumed_at, prt.user_id
+        FROM public.password_reset_token prt
+        WHERE prt.token_hash = :token_hash
+        """,
+        {"token_hash": token_hash},
+    )
+    if (
+        not row
+        or row["consumed_at"] is not None
+        or row["expires_at"] < datetime.now(timezone.utc)
+    ):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    new_hash = pwd_context.hash(payload.new_password)
+    await platform_execute(
+        "UPDATE public.user_account SET password_hash = :ph, updated_at = now() WHERE id = :uid",
+        {"ph": new_hash, "uid": row["user_id"]},
+    )
+    await platform_execute(
+        "UPDATE public.password_reset_token SET consumed_at = now() WHERE id = :tid",
+        {"tid": row["token_id"]},
+    )
+    await log_audit_event(
+        action="auth.password_reset_completed",
+        actor_user_id=str(row["user_id"]),
+        request=request,
+    )
+    return {"message": "Password has been reset. You can now log in."}
 
 @auth_router.get("/workspaces/suggest")
 async def suggest_workspaces(

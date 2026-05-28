@@ -2,7 +2,7 @@
 import re
 import uuid
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, insert, update, delete, func
 from fastapi.security import OAuth2PasswordRequestForm
@@ -14,7 +14,7 @@ from app.core.csrf import (
     set_admin_auth_cookies,
 )
 from app.core.rate_limit import enforce_rate_limit
-from app.core.security import pwd_context, create_access_token, get_current_admin
+from app.core.security import pwd_context, create_access_token, get_current_admin, get_current_admin_from_websocket
 from app.core.sessions import (
     create_admin_session,
     get_admin_refresh_subject,
@@ -55,6 +55,7 @@ from app.core.storage import LocalStorage
 from app.core.config import settings
 from app.core.observability import observe_queue_task
 from app.core.search import record_search_event, tenant_seo_urls
+from app.core.realtime import admin_realtime_manager, broadcast_tenant_event
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -67,7 +68,7 @@ admin_router = APIRouter(
 storage = LocalStorage()  # env'den UPLOADS_DIR + STATIC_BASE_URL alır
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
-CONTENT_MIN_LENGTH = 120
+CONTENT_MIN_LENGTH = 10
 
 
 def _description_limit_for_body(body: str) -> int:
@@ -108,7 +109,7 @@ def _validate_redirect_payload(source_path: str, target_path: str, status_code: 
     dst = _normalize_redirect_path(target_path)
     if src == dst:
         raise HTTPException(status_code=422, detail="Source and target paths cannot be the same")
-    if status_code not in {301, 302, 307, 308}:
+    if status_code not in {301, 302}:
         raise HTTPException(status_code=422, detail="Unsupported redirect status code")
     return src, dst
 
@@ -118,28 +119,77 @@ async def invalidate_current_tenant_public_cache() -> None:
     await invalidate_cache_prefix(tenant_public_cache_prefix(tenant.id))
 
 
-# ---- URL helper (absolute for current host) ----
+async def notify_admin_change(resource: str, action: str, title: str | None = None) -> None:
+    tenant = get_tenant_context()
+    await broadcast_tenant_event(
+        tenant.slug,
+        {
+            "resource": resource,
+            "action": action,
+            "title": title,
+        },
+    )
+
+
+# ---- URL helper ----
 def _abs_url(request: Request, url: str) -> str:
-    try:
-        if url.startswith("http://") or url.startswith("https://"):
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            if parsed.hostname in {"localhost", "127.0.0.1"}:
-                base = str(request.base_url).rstrip("/")
-                path = parsed.path
-                if path.startswith("/static/"):
-                    return f"{base}/api{path}"
-                return f"{base}{path}"
-            return url
-    except Exception:
+    """Stored path → root-relative URL served through Next.js proxy.
+
+    Returns /api/static/... so the browser resolves it against whatever
+    origin the user opened the page from (localhost, Cloudflare tunnel,
+    production domain — all work without any config change).
+
+    • Relative /static/...             → /api/static/...
+    • Absolute .../api/static/... path → /api/static/...  (old Docker URLs)
+    • Absolute .../static/... path     → /api/static/...
+    • External absolute URL            → returned unchanged
+    """
+    if not url:
         return url
 
-    base = str(request.base_url).rstrip("/")
+    if url.startswith("http://") or url.startswith("https://"):
+        try:
+            from urllib.parse import urlparse
+            path = urlparse(url).path
+            if path.startswith("/api/static/"):
+                return path           # strip host, keep root-relative path
+            if path.startswith("/static/"):
+                return f"/api{path}"  # add /api prefix
+        except Exception:
+            pass
+        return url  # External URL — leave unchanged
+
+    # Relative path
     if url.startswith("/static/"):
-        return f"{base}/api{url}"
+        return f"/api{url}"
     if not url.startswith("/"):
         url = "/" + url
-    return f"{base}{url}"
+    return url
+
+
+@admin_router.websocket("/realtime")
+async def admin_realtime(websocket: WebSocket, tenant_slug: str):
+    try:
+        current = await get_current_admin_from_websocket(websocket, tenant_slug)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+
+    await admin_realtime_manager.connect(tenant_slug, websocket)
+    await websocket.send_json(
+        {
+            "type": "connected",
+            "tenant_slug": tenant_slug,
+            "email": current["email"],
+        }
+    )
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await admin_realtime_manager.disconnect(tenant_slug, websocket)
+    except Exception:
+        await admin_realtime_manager.disconnect(tenant_slug, websocket)
 
 # ---- Auth & Tenant Members ----
 @admin_router.post("/login", response_model=TokenOut)
@@ -443,7 +493,7 @@ async def change_admin_password(admin_id: uuid.UUID, p: AdminPasswordIn, current
 
 # ---- Category CRUD ----
 @admin_router.post("/categories", response_model=CategoryOut)
-async def create_category(payload: CategoryCreate, _=Depends(get_current_admin)):
+async def create_category(payload: CategoryCreate, current=Depends(get_current_admin)):
     await enforce_tenant_limit("categories")
     try:
         stmt = (
@@ -461,6 +511,15 @@ async def create_category(payload: CategoryCreate, _=Depends(get_current_admin))
         )
         rows = await execute(stmt)
         await invalidate_current_tenant_public_cache()
+        await notify_admin_change("category", "created", str(rows[0]["name"]))
+        await log_audit_event(
+            action="content.category_created",
+            actor_user_id=current["id"],
+            tenant_id=current["tenant_id"],
+            target_type="category",
+            target_id=str(rows[0]["id"]),
+            metadata={"name": rows[0]["name"], "slug": rows[0]["slug"]},
+        )
         return rows[0]
     except IntegrityError:
         # Aynı isim/slug için benzersiz kısıt hatasını kullanıcıya anlaşılır şekilde ilet
@@ -507,20 +566,30 @@ async def update_category(id: uuid.UUID, payload: CategoryUpdate, _=Depends(get_
     if not rows:
         raise HTTPException(404, "Category not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("category", "updated", str(rows[0]["name"]))
     return rows[0]
 
 @admin_router.delete("/categories/{id}", status_code=204)
-async def delete_category(id: uuid.UUID, _=Depends(get_current_admin)):
-    stmt = delete(t_category).where(t_category.c.id == id).returning(t_category.c.id)
+async def delete_category(id: uuid.UUID, current=Depends(get_current_admin)):
+    stmt = delete(t_category).where(t_category.c.id == id).returning(t_category.c.id, t_category.c.name)
     rows = await execute(stmt)
     if not rows:
         raise HTTPException(404, "Category not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("category", "deleted")
+    await log_audit_event(
+        action="content.category_deleted",
+        actor_user_id=current["id"],
+        tenant_id=current["tenant_id"],
+        target_type="category",
+        target_id=str(id),
+        metadata={"name": rows[0].get("name", "")},
+    )
     return
 
 # ---- Heading CRUD ----
 @admin_router.post("/headings", response_model=HeadingOut)
-async def create_heading(payload: HeadingCreate, _=Depends(get_current_admin)):
+async def create_heading(payload: HeadingCreate, current=Depends(get_current_admin)):
     await enforce_tenant_limit("headings")
     stmt = (
         insert(t_heading)
@@ -541,8 +610,17 @@ async def create_heading(payload: HeadingCreate, _=Depends(get_current_admin)):
     )
     rows = await execute(stmt)
     if not rows:
-        raise HTTPException(404, "Content not found")
+        raise HTTPException(404, "Heading not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("heading", "created", str(rows[0]["title"]))
+    await log_audit_event(
+        action="content.heading_created",
+        actor_user_id=current["id"],
+        tenant_id=current["tenant_id"],
+        target_type="heading",
+        target_id=str(rows[0]["id"]),
+        metadata={"title": rows[0]["title"], "level": rows[0]["level"]},
+    )
     return rows[0]
 
 @admin_router.get("/headings", response_model=List[HeadingOut])
@@ -601,20 +679,30 @@ async def update_heading(id: uuid.UUID, payload: HeadingUpdate, _=Depends(get_cu
     if not rows:
         raise HTTPException(404, "Heading not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("heading", "updated", str(rows[0]["title"]))
     return rows[0]
 
 @admin_router.delete("/headings/{id}", status_code=204)
-async def delete_heading(id: uuid.UUID, _=Depends(get_current_admin)):
-    stmt = delete(t_heading).where(t_heading.c.id == id).returning(t_heading.c.id)
+async def delete_heading(id: uuid.UUID, current=Depends(get_current_admin)):
+    stmt = delete(t_heading).where(t_heading.c.id == id).returning(t_heading.c.id, t_heading.c.title, t_heading.c.level)
     rows = await execute(stmt)
     if not rows:
         raise HTTPException(404, "Heading not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("heading", "deleted")
+    await log_audit_event(
+        action="content.heading_deleted",
+        actor_user_id=current["id"],
+        tenant_id=current["tenant_id"],
+        target_type="heading",
+        target_id=str(id),
+        metadata={"title": rows[0].get("title", ""), "level": rows[0].get("level", "")},
+    )
     return
 
 # ---- Content CRUD ----
 @admin_router.post("/contents", response_model=ContentOut)
-async def create_content(payload: ContentCreate, _=Depends(get_current_admin)):
+async def create_content(payload: ContentCreate, current=Depends(get_current_admin)):
     await enforce_tenant_limit("contents")
     _validate_content_quality(payload.body, payload.description)
     # heading başına tek içerik kuralı - var mı?
@@ -641,6 +729,15 @@ async def create_content(payload: ContentCreate, _=Depends(get_current_admin)):
     )
     rows = await execute(stmt)
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("content", "created")
+    await log_audit_event(
+        action="content.content_created",
+        actor_user_id=current["id"],
+        tenant_id=current["tenant_id"],
+        target_type="content",
+        target_id=str(rows[0]["id"]),
+        metadata={"heading_id": str(payload.heading_id), "status": status_value},
+    )
     return rows[0]
 
 @admin_router.get("/contents", response_model=List[ContentOut])
@@ -668,9 +765,9 @@ async def get_content(id: uuid.UUID, _=Depends(get_current_admin)):
     return row
 
 @admin_router.put("/contents/{id}", response_model=ContentOut)
-async def update_content(id: uuid.UUID, payload: ContentUpdate, _=Depends(get_current_admin)):
+async def update_content(id: uuid.UUID, payload: ContentUpdate, current=Depends(get_current_admin)):
     current_row = await fetch_one(
-        select(t_content.c.id, t_content.c.body, t_content.c.description).where(t_content.c.id == id)
+        select(t_content.c.id, t_content.c.body, t_content.c.description, t_content.c.status).where(t_content.c.id == id)
     )
     if not current_row:
         raise HTTPException(404, "Content not found")
@@ -694,27 +791,59 @@ async def update_content(id: uuid.UUID, payload: ContentUpdate, _=Depends(get_cu
     )
     rows = await execute(stmt)
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("content", "updated")
+    meta: dict = {"content_id": str(id)}
+    if "status" in data:
+        meta["status_from"] = current_row["status"]
+        meta["status_to"] = data["status"]
+    await log_audit_event(
+        action="content.content_updated",
+        actor_user_id=current["id"],
+        tenant_id=current["tenant_id"],
+        target_type="content",
+        target_id=str(id),
+        metadata=meta,
+    )
     return rows[0]
 
 @admin_router.delete("/contents/{id}", status_code=204)
-async def delete_content(id: uuid.UUID, _=Depends(get_current_admin)):
+async def delete_content(id: uuid.UUID, current=Depends(get_current_admin)):
     stmt = delete(t_content).where(t_content.c.id == id).returning(t_content.c.id)
     rows = await execute(stmt)
     if not rows:
         raise HTTPException(404, "Content not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("content", "deleted")
+    await log_audit_event(
+        action="content.content_deleted",
+        actor_user_id=current["id"],
+        tenant_id=current["tenant_id"],
+        target_type="content",
+        target_id=str(id),
+    )
     return
 
 # ---- Content Image CRUD ----
+
+async def _next_image_sort_order(content_id: uuid.UUID) -> int:
+    """Return max(sort_order)+1 for the given content, or 0 if no images yet."""
+    row = await fetch_one(
+        select(func.coalesce(func.max(t_content_image.c.sort_order), -1).label("mx"))
+        .where(t_content_image.c.content_id == content_id)
+    )
+    return (row["mx"] + 1) if row else 0
+
+
 @admin_router.post("/content-images", response_model=ContentImageOut)
 async def create_content_image(payload: ContentImageCreate, _=Depends(get_current_admin)):
+    effective_order = await _next_image_sort_order(payload.content_id)
     stmt = (
         insert(t_content_image)
         .values(
             content_id=payload.content_id,
             url=payload.url,
             alt=payload.alt or "",
-            sort_order=payload.sort_order or 0,
+            sort_order=effective_order,
             width=payload.width or 0,
             height=payload.height or 0,
         )
@@ -732,6 +861,7 @@ async def create_content_image(payload: ContentImageCreate, _=Depends(get_curren
     )
     rows = await execute(stmt)
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("image", "created")
     return rows[0]
 
 @admin_router.get("/content-images", response_model=List[ContentImageOut])
@@ -793,6 +923,7 @@ async def update_content_image(id: uuid.UUID, payload: ContentImageUpdate, _=Dep
     if not rows:
         raise HTTPException(404, "Content image not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("image", "updated")
     return rows[0]
 
 @admin_router.post("/content-images/upload", response_model=ContentImageOut, status_code=201)
@@ -820,15 +951,18 @@ async def upload_content_image(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Auto-increment sort_order to avoid unique constraint (content_id, sort_order)
+    effective_order = await _next_image_sort_order(content_id)
+
     stmt = (
         insert(t_content_image)
         .values(
             content_id=content_id,
-            url=public_url,                 # TAM URL
+            url=public_url,
             alt=alt or "",
-            sort_order=sort_order or 0,
-            width=width or 0,               # <-- eklendi
-            height=height or 0,             # <-- eklendi
+            sort_order=effective_order,
+            width=width or 0,
+            height=height or 0,
         )
         .returning(
             t_content_image.c.id,
@@ -844,6 +978,7 @@ async def upload_content_image(
     )
     rows = await execute(stmt)
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("image", "created")
     return rows[0]
 
 @admin_router.delete("/content-images/{id}", status_code=204)
@@ -870,6 +1005,7 @@ async def delete_content_image(id: uuid.UUID, _=Depends(get_current_admin)):
     except Exception:
         pass
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("image", "deleted")
     return
 
 
@@ -906,6 +1042,7 @@ async def create_content_attachment(payload: ContentAttachmentCreate, _=Depends(
     )
     rows = await execute(stmt)
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("attachment", "created")
     return rows[0]
 
 
@@ -987,6 +1124,7 @@ async def update_content_attachment(id: uuid.UUID, payload: ContentAttachmentUpd
     if not rows:
         raise HTTPException(404, "Content attachment not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("attachment", "updated")
     return rows[0]
 
 
@@ -1038,6 +1176,7 @@ async def upload_content_attachment(
     )
     rows = await execute(stmt)
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("attachment", "created")
     return rows[0]
 
 
@@ -1065,6 +1204,7 @@ async def delete_content_attachment(id: uuid.UUID, _=Depends(get_current_admin))
         pass
 
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("attachment", "deleted")
     return
 
 
@@ -1101,6 +1241,7 @@ async def create_redirect_rule(payload: RedirectRuleCreate, _=Depends(get_curren
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Redirect source already exists") from exc
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("redirect", "created", source_path)
     return rows[0]
 
 
@@ -1160,6 +1301,7 @@ async def update_redirect_rule(id: uuid.UUID, payload: RedirectRuleUpdate, _=Dep
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="Redirect source already exists") from exc
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("redirect", "updated", src)
     return rows[0]
 
 
@@ -1169,6 +1311,7 @@ async def delete_redirect_rule(id: uuid.UUID, _=Depends(get_current_admin)):
     if not rows:
         raise HTTPException(status_code=404, detail="Redirect rule not found")
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("redirect", "deleted")
     return
 
 
@@ -1265,6 +1408,124 @@ async def search_analytics(limit: int = Query(10, ge=1, le=50), _=Depends(get_cu
     return [dict(row) for row in rows]
 
 
+@admin_router.get("/search/analytics/export")
+async def export_search_analytics(_=Depends(get_current_admin)):
+    """Son 24 saatin tüm arama kayıtlarını CSV olarak indirir."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    tenant = get_tenant_context()
+    rows = await platform_fetch_all(
+        """
+        SELECT query, source, result_count, created_at
+        FROM public.search_event
+        WHERE tenant_id = :tenant_id
+        ORDER BY created_at DESC
+        """,
+        {"tenant_id": tenant.id},
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["query", "source", "result_count", "created_at"])
+    for row in rows:
+        writer.writerow([
+            row["query"],
+            row["source"],
+            row["result_count"],
+            row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else str(row["created_at"]),
+        ])
+    output.seek(0)
+
+    filename = f"search-history-{tenant.slug}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@admin_router.get("/analytics/overview")
+async def analytics_overview(
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(10, ge=1, le=50),
+    _=Depends(get_current_admin),
+):
+    tenant = get_tenant_context()
+    params = {"tenant_id": tenant.id, "days": days, "limit": limit}
+    summary = await platform_fetch_one(
+        """
+        SELECT
+          count(*) AS page_views,
+          count(DISTINCT url) AS viewed_pages,
+          count(DISTINCT ip) AS visitors
+        FROM public.page_view_event
+        WHERE tenant_id = :tenant_id
+          AND created_at >= now() - (:days * interval '1 day')
+        """,
+        params,
+    )
+    top_pages = await platform_fetch_all(
+        """
+        SELECT
+          url,
+          COALESCE(NULLIF(max(title), ''), url) AS title,
+          count(*) AS view_count,
+          count(DISTINCT ip) AS visitor_count,
+          max(created_at) AS last_seen_at
+        FROM public.page_view_event
+        WHERE tenant_id = :tenant_id
+          AND created_at >= now() - (:days * interval '1 day')
+        GROUP BY url
+        ORDER BY count(*) DESC, max(created_at) DESC
+        LIMIT :limit
+        """,
+        params,
+    )
+    zero_result_queries = await platform_fetch_all(
+        """
+        SELECT
+          query,
+          source,
+          count(*) AS search_count,
+          max(created_at) AS last_seen_at
+        FROM public.search_event
+        WHERE tenant_id = :tenant_id
+          AND result_count = 0
+          AND created_at >= now() - (:days * interval '1 day')
+        GROUP BY query, source
+        ORDER BY count(*) DESC, max(created_at) DESC
+        LIMIT :limit
+        """,
+        params,
+    )
+    top_queries = await platform_fetch_all(
+        """
+        SELECT
+          query,
+          source,
+          count(*) AS search_count,
+          round(avg(result_count)::numeric, 2) AS avg_results,
+          max(created_at) AS last_seen_at
+        FROM public.search_event
+        WHERE tenant_id = :tenant_id
+          AND created_at >= now() - (:days * interval '1 day')
+        GROUP BY query, source
+        ORDER BY count(*) DESC, max(created_at) DESC
+        LIMIT :limit
+        """,
+        params,
+    )
+    return {
+        "period_days": days,
+        "summary": dict(summary or {"page_views": 0, "viewed_pages": 0, "visitors": 0}),
+        "top_pages": [dict(row) for row in top_pages],
+        "zero_result_queries": [dict(row) for row in zero_result_queries],
+        "top_queries": [dict(row) for row in top_queries],
+    }
+
+
 @admin_router.get("/usage")
 async def tenant_usage(_=Depends(get_current_admin)):
     tenant = get_tenant_context()
@@ -1328,6 +1589,28 @@ async def broken_links(_=Depends(get_current_admin)):
     return {"count": len(broken), "broken_links": broken[:100]}
 
 
+# ---- Feedback Notifications ----
+@admin_router.get("/feedback")
+async def list_feedback(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _=Depends(get_current_admin),
+):
+    """Return feedback_event records for this tenant (newest first)."""
+    tenant = get_tenant_context()
+    rows = await platform_fetch_all(
+        """
+        SELECT id, url, rating, message, created_at
+        FROM public.feedback_event
+        WHERE tenant_id = :tenant_id
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+        """,
+        {"tenant_id": tenant.id, "limit": limit, "offset": offset},
+    )
+    return [dict(r) for r in rows]
+
+
 # ---- Site Settings ----
 from app.schemas import SiteSettingsUpdate
 
@@ -1338,6 +1621,7 @@ async def update_site_settings(payload: SiteSettingsUpdate, _=Depends(get_curren
     if payload.site_logo is not None:
         await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.site_logo})
     await invalidate_current_tenant_public_cache()
+    await notify_admin_change("settings", "updated")
     return {"message": "Settings updated"}
 
 @admin_router.post("/settings/logo")
@@ -1352,7 +1636,8 @@ async def upload_site_logo(request: Request, file: UploadFile = File(...), _=Dep
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
         
-    abs_url = _abs_url(request, public_url)
-    await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": abs_url})
+    # Store relative path (portable across environments)
+    await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": public_url})
     await invalidate_current_tenant_public_cache()
-    return {"site_logo": abs_url}
+    await notify_admin_change("settings", "updated")
+    return {"site_logo": _abs_url(request, public_url)}

@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import rehypeSanitize from "rehype-sanitize";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { apiGet, siteUrl, tenantSettings, toPublicUrl } from "../../../../../lib/api";
 import { publicCopy, resolvePublicLang } from "../../../../../lib/server-i18n";
 import CopyPageLinkButton from "../../../CopyPageLinkButton";
@@ -15,10 +16,20 @@ import DocSidebar from "../../../DocSidebar";
 import BackToTop from "../../../BackToTop";
 import MarkdownPre from "../../../MarkdownPre";
 import CategorySidebar from "../../../CategorySidebar";
+import PageViewTracker from "../../../PageViewTracker";
 
 export const revalidate = 60;
 
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    img: [...(defaultSchema.attributes?.img ?? []), "src", "alt", "width", "height", "loading", "decoding"],
+  },
+};
+
 type PageData = {
+  content_id: string;
   category: string;
   h1: string;
   h2: string;
@@ -28,6 +39,7 @@ type PageData = {
 };
 
 type Heading = { id: string; title: string; slug: string; level: number; sort_order: number };
+type ContentImage = { id: string; url: string; alt: string; sort_order: number; width?: number; height?: number };
 type ContentAttachment = {
   id: string;
   content_id: string;
@@ -96,6 +108,27 @@ function linkedHeading(level: 1 | 2 | 3 | 4, children: ReactNode, label: string)
   return <h4 id={id} className="group">{content}</h4>;
 }
 
+function injectImages(body: string, images: ContentImage[]): string {
+  let index = 0;
+  return body.replace(/<--image-->/g, () => {
+    const image = images[index++];
+    if (!image) return "";
+    const widthAttr = image.width ? ` width="${image.width}"` : "";
+    const heightAttr = image.height ? ` height="${image.height}"` : "";
+    return `<img src="${image.url}" alt="${image.alt || "image"}"${widthAttr}${heightAttr} loading="lazy" decoding="async" />`;
+  });
+}
+
+function injectFiles(body: string, attachments: ContentAttachment[]): string {
+  let index = 0;
+  return body.replace(/<--file-->/g, () => {
+    const att = attachments[index++];
+    if (!att) return "";
+    const label = att.label || att.file_name;
+    return `<a href="${att.url}" target="_blank" rel="noreferrer noopener">📎 ${label}</a>`;
+  });
+}
+
 async function loadPage(params: RouteParams) {
   return apiGet<PageData>(
     `/t/${params.tenantSlug}/page/${params.categorySlug}/${params.h1Slug}/${params.h2Slug}`,
@@ -110,6 +143,15 @@ async function loadPageAttachments(params: RouteParams) {
       60
     )) || [];
   return items.map((item) => ({ ...item, url: toPublicUrl(item.url) || item.url }));
+}
+
+async function loadPageImages(params: RouteParams) {
+  const images =
+    (await apiGet<ContentImage[]>(
+      `/t/${params.tenantSlug}/page/${params.categorySlug}/${params.h1Slug}/${params.h2Slug}/images`,
+      60
+    )) || [];
+  return images.map((item) => ({ ...item, url: toPublicUrl(item.url) || item.url }));
 }
 
 async function loadSiblings(params: RouteParams) {
@@ -156,13 +198,14 @@ export async function generateMetadata({
 
 export default async function PublicDocPage({ params }: { params: Promise<RouteParams> }) {
   const resolved = await params;
-  const [page, siblings, settings, lang, docsIndex, attachments] = await Promise.all([
+  const [page, siblings, settings, lang, docsIndex, attachments, images] = await Promise.all([
     loadPage(resolved),
     loadSiblings(resolved),
     tenantSettings(resolved.tenantSlug),
     resolvePublicLang(),
     apiGet<DocsIndexCategory[]>(`/t/${resolved.tenantSlug}/docs-index`, 60),
     loadPageAttachments(resolved),
+    loadPageImages(resolved),
   ]);
   const labels = publicCopy[lang];
   const dir = lang === "ar" ? "rtl" : "ltr";
@@ -177,7 +220,15 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
     notFound();
   }
 
-  const toc = extractToc(page.body);
+  const fileMarkerCount = (page.body.match(/<--file-->/g) || []).length;
+  const inlineAttachments = attachments.slice(0, fileMarkerCount);
+  const bottomAttachments = attachments.slice(fileMarkerCount);
+
+  let renderedBody = images.length ? injectImages(page.body, images) : page.body;
+  if (fileMarkerCount > 0) {
+    renderedBody = injectFiles(renderedBody, inlineAttachments);
+  }
+  const toc = extractToc(renderedBody);
   const siteTitle = settings.site_title || resolved.tenantSlug;
 
   const categoryEntry = docsIndex?.find((c) => c.slug === resolved.categorySlug);
@@ -196,10 +247,16 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
       {
         "@type": "ListItem",
         position: 2,
+        name: categoryEntry?.name || resolved.categorySlug,
+        item: siteUrl(`/d/${resolved.tenantSlug}?cat=${resolved.categorySlug}`),
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
         name: page.h1,
         item: siteUrl(`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}`),
       },
-      { "@type": "ListItem", position: 3, name: page.title, item: siteUrl(`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${resolved.h2Slug}`) },
+      { "@type": "ListItem", position: 4, name: page.title, item: siteUrl(`/d/${resolved.tenantSlug}/${resolved.categorySlug}/${resolved.h1Slug}/${resolved.h2Slug}`) },
     ],
   };
   const articleJsonLd = {
@@ -215,6 +272,7 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
     <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }} />
+      <PageViewTracker tenantSlug={resolved.tenantSlug} title={page.title} contentId={page.content_id} />
 
       <PublicHeader
         tenantSlug={resolved.tenantSlug}
@@ -276,7 +334,7 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
                 <div className="prose prose-gray max-w-none dark:prose-invert prose-headings:scroll-mt-28 prose-headings:font-semibold prose-a:text-emerald-600 prose-a:no-underline hover:prose-a:underline dark:prose-a:text-emerald-400 prose-code:rounded-md prose-code:bg-slate-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:text-sm prose-code:font-normal prose-code:text-slate-800 dark:prose-code:bg-gray-800 dark:prose-code:text-gray-200 prose-pre:rounded-xl prose-pre:border prose-pre:border-slate-200 prose-pre:bg-slate-100 prose-pre:text-slate-800 dark:prose-pre:border-gray-700 dark:prose-pre:bg-gray-900 dark:prose-pre:text-gray-100 [&_pre_code]:bg-transparent [&_pre_code]:text-inherit prose-img:rounded-xl prose-blockquote:border-l-emerald-400 prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 lg:prose-base">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeSanitize]}
+                    rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
                     components={{
                       h1: ({ children }) => linkedHeading(1, children, labels.copyLink),
                       h2: ({ children }) => linkedHeading(2, children, labels.copyLink),
@@ -294,17 +352,17 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
                       ),
                     }}
                   >
-                    {page.body}
+                    {renderedBody}
                   </ReactMarkdown>
                 </div>
 
-                {attachments.length > 0 && (
+                {bottomAttachments.length > 0 && (
                   <section className="mt-8 border-t border-gray-100 pt-6 dark:border-gray-800">
                     <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       {labels.attachments}
                     </h2>
                     <ul className="space-y-2">
-                      {attachments.map((attachment) => (
+                      {bottomAttachments.map((attachment) => (
                         <li key={attachment.id} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-950">
                           <a
                             href={attachment.url}

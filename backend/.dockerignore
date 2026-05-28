@@ -1,8 +1,9 @@
 .git
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# Python bytecode — her alt dizinde de eşleşsin
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
 .pytest_cache
 .venv
 venv

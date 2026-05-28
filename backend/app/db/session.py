@@ -3,20 +3,44 @@ from contextvars import ContextVar
 
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
-from app.core.config import DATABASE_URL
+from sqlalchemy.dialects import postgresql
+from app.core.config import settings
 
+# ---------------------------------------------------------------------------
+# Async engine — connection pool parametreleri production yükü için ayarlı
+# ---------------------------------------------------------------------------
+# pool_size       : havuzda sürekli açık tutulan bağlantı sayısı
+# max_overflow    : pool_size üstüne çıkabilecek ekstra bağlantı sayısı
+# pool_timeout    : boş bağlantı beklenecek maks. süre (sn)
+# pool_recycle    : bağlantının zorla yenileneceği süre (sn) — PostgreSQL'in
+#                   idle timeout'unu aşmamak için 1800 sn (30 dk) uygundur
+# pool_pre_ping   : her kullanım öncesi "SELECT 1" ile bağlantı sağlığını kontrol eder
 engine = create_async_engine(
-    DATABASE_URL,
+    settings.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
-    future=True
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=1800,
+    future=True,
 )
 
 _tenant_schema: ContextVar[str | None] = ContextVar("tenant_schema", default=None)
+_identifier_preparer = postgresql.dialect().identifier_preparer
 
 
 def quote_ident(value: str) -> str:
-    return '"' + value.replace('"', '""') + '"'
+    if not value or "\x00" in value:
+        raise ValueError("Invalid SQL identifier")
+    return _identifier_preparer.quote(value)
+
+
+async def apply_search_path(conn, schema_name: str) -> None:
+    await conn.execute(
+        text("SELECT set_config('search_path', quote_ident(:schema_name) || ', public', true)"),
+        {"schema_name": schema_name},
+    )
 
 
 def set_tenant_schema(schema_name: str):
@@ -34,7 +58,7 @@ def current_tenant_schema() -> str | None:
 async def _apply_search_path(conn) -> None:
     schema_name = current_tenant_schema()
     if schema_name:
-        await conn.execute(text(f"SET LOCAL search_path TO {quote_ident(schema_name)}, public"))
+        await apply_search_path(conn, schema_name)
 
 
 async def fetch_one(query, params: dict | None = None):

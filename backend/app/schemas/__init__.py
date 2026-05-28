@@ -50,6 +50,19 @@ class WorkspaceSelectIn(BaseModel):
 class WorkspaceSelectOut(TokenOut):
     tenant_slug: str
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+class ForgotPasswordOut(BaseModel):
+    message: str
+
+class ResetPasswordIn(BaseModel):
+    token: str = Field(min_length=20)
+    new_password: str = Field(min_length=8, max_length=200)
+
+class ResetPasswordOut(BaseModel):
+    message: str
+
 class AdminInitIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=200)
@@ -258,6 +271,7 @@ class HeadingPublic(BaseModel):
     sort_order: int
 
 class PageOut(BaseModel):
+    content_id: UUID
     category: str
     h1: str
     h2: str
@@ -293,7 +307,7 @@ class SearchResponse(BaseModel):
 class RedirectRuleBase(BaseModel):
     source_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
     target_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
-    status_code: Optional[int] = Field(default=301, ge=301, le=308)
+    status_code: Optional[int] = Field(default=301, ge=301, le=302)
     is_active: Optional[bool] = True
     note: Optional[str] = Field(default=None, max_length=300)
 
@@ -306,7 +320,7 @@ class RedirectRuleCreate(RedirectRuleBase):
 class RedirectRuleUpdate(BaseModel):
     source_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
     target_path: Optional[str] = Field(default=None, min_length=1, max_length=400, pattern=r"^/.*")
-    status_code: Optional[int] = Field(default=None, ge=301, le=308)
+    status_code: Optional[int] = Field(default=None, ge=301, le=302)
     is_active: Optional[bool] = None
     note: Optional[str] = Field(default=None, max_length=300)
 

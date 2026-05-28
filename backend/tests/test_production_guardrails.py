@@ -54,30 +54,28 @@ def test_platform_csrf_cookie_is_visible_to_owner_panel_path():
     assert any(header.startswith("platform_csrf=csrf-token") and "Path=/platform/admin" in header for header in headers)
 
 
-def test_production_validation_requires_billing_and_search(monkeypatch):
-    monkeypatch.setattr(config, "IS_PRODUCTION", True)
-    monkeypatch.setattr(config, "SECRET_KEY", "x" * 40)
-    monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(config, "SMTP_FROM", "noreply@example.com")
-    monkeypatch.setattr(config, "APP_PUBLIC_BASE_URL", "https://docs.example.com")
-    monkeypatch.setattr(config, "CORS_ORIGINS", ["https://docs.example.com"])
-    monkeypatch.setattr(config, "COOKIE_SECURE", True)
-    monkeypatch.setattr(config, "PLATFORM_OWNER_EMAIL", "owner@example.com")
-    monkeypatch.setattr(config, "PLATFORM_OWNER_PASSWORD_HASH", "hash")
-    monkeypatch.setattr(config, "PLATFORM_OWNER_TOTP_SECRET", "BASE32SECRET")
-    monkeypatch.setattr(config, "IYZICO_API_KEY", "")
-    monkeypatch.setattr(config, "IYZICO_SECRET_KEY", "")
-    monkeypatch.setattr(config, "IYZICO_MERCHANT_ID", "")
-    monkeypatch.setattr(config, "IYZICO_SUBSCRIPTION_PLAN_REF", "")
-    monkeypatch.setattr(config, "MEILISEARCH_URL", "")
-    monkeypatch.setattr(config, "MEILISEARCH_API_KEY", "")
-    monkeypatch.setattr(config, "SENTRY_DSN", "")
+def test_production_validation_requires_search_and_sentry(monkeypatch):
+    """Production startup kontrolünün kritik eksiklikleri yakaladığını doğrular."""
+    monkeypatch.setattr(config.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(config.settings, "SECRET_KEY", "x" * 40)
+    monkeypatch.setattr(config.settings, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(config.settings, "SMTP_FROM", "noreply@example.com")
+    monkeypatch.setattr(config.settings, "APP_PUBLIC_BASE_URL", "https://docs.example.com")
+    monkeypatch.setattr(config.settings, "CORS_ORIGINS", ["https://docs.example.com"])
+    monkeypatch.setattr(config.settings, "COOKIE_SECURE", True)
+    monkeypatch.setattr(config.settings, "PLATFORM_OWNER_EMAIL", "owner@example.com")
+    monkeypatch.setattr(config.settings, "PLATFORM_OWNER_PASSWORD_HASH", "hash")
+    monkeypatch.setattr(config.settings, "PLATFORM_OWNER_TOTP_SECRET", "BASE32SECRET")
+    monkeypatch.setattr(config.settings, "MEILISEARCH_URL", "")
+    monkeypatch.setattr(config.settings, "MEILISEARCH_API_KEY", "")
+    monkeypatch.setattr(config.settings, "SENTRY_DSN", "")
 
     with pytest.raises(RuntimeError) as exc:
         config.validate_production_config()
 
     message = str(exc.value)
-    assert "Iyzico" in message
     assert "Meilisearch URL" in message
     assert "SENTRY_DSN" in message
     assert "Restic and Cloudflare R2 backup credentials" in message
+    # Iyzico artık zorunlu değil (ödeme sistemi devre dışı)
+    assert "Iyzico" not in message

@@ -6,6 +6,7 @@ import { publicCopy } from "../../lib/server-i18n";
 import type { PublicLang } from "../../lib/server-i18n";
 import LanguageSwitcher from "./LanguageSwitcher";
 import ThemeToggle from "./ThemeToggle";
+import PublicSearchShortcut from "./PublicSearchShortcut";
 
 type NavCategory = { id: string; name: string; slug: string };
 
@@ -32,6 +33,7 @@ export default async function PublicHeader({
   const hasCategories = categories.length > 0;
   return (
     <>
+      <PublicSearchShortcut tenantSlug={tenantSlug} />
       <header className="sticky top-0 z-30 border-b border-emerald-600/40 bg-emerald-700 dark:border-emerald-800 dark:bg-emerald-900">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
 
@@ -79,7 +81,7 @@ export default async function PublicHeader({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <span className="hidden sm:inline">{labels.search}</span>
-            <kbd className="hidden rounded bg-white/20 px-1 py-0.5 text-[10px] font-mono text-emerald-100 lg:inline">/</kbd>
+            <kbd className="hidden rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-mono text-emerald-100 lg:inline">Ctrl K</kbd>
           </Link>
 
           {/* Platform Home */}

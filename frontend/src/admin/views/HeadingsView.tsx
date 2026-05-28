@@ -7,6 +7,9 @@ import CreateH2Form from "../components/CreateH2Form";
 import { ListControls, PaginationControls } from "../components/ListControls";
 import type { Category, Heading, Content, UUID } from "../../shared/types/models";
 
+const visibleHeadingDescription = (heading: Heading) =>
+  heading.seo_description || heading.description || "";
+
 interface HeadingsViewProps {
   activeCat: Category | null;
   activeH1: Heading | null;
@@ -53,14 +56,14 @@ export default function HeadingsView({
     const needle = h1Query.trim().toLowerCase();
     if (!needle) return h1s;
     return h1s.filter((heading) =>
-      `${heading.title} ${heading.description || ""} ${heading.seo_description || ""} ${heading.slug}`.toLowerCase().includes(needle)
+      `${heading.title} ${visibleHeadingDescription(heading)} ${heading.slug}`.toLowerCase().includes(needle)
     );
   }, [h1Query, h1s]);
   const filteredH2 = useMemo(() => {
     const needle = h2Query.trim().toLowerCase();
     if (!needle) return h2s;
     return h2s.filter((heading) =>
-      `${heading.title} ${heading.description || ""} ${heading.seo_description || ""} ${heading.slug}`.toLowerCase().includes(needle)
+      `${heading.title} ${visibleHeadingDescription(heading)} ${heading.slug}`.toLowerCase().includes(needle)
     );
   }, [h2Query, h2s]);
   const pagedH1 = paginate(filteredH1, h1Page, 12);
@@ -115,7 +118,10 @@ export default function HeadingsView({
                 </div>
               ) : (
                 <div className="grid gap-2">
-                  {pagedH1.items.map((h) => (
+                  {pagedH1.items.map((h) => {
+                    const description = visibleHeadingDescription(h);
+
+                    return (
                     <div key={h.id} className={itemCard}>
                       <div className="flex items-center justify-between gap-4">
                         <button
@@ -148,16 +154,15 @@ export default function HeadingsView({
                               const title = await showPrompt(t("edit_title_modal"), h.title || "", t("new_title"));
                               if (title === null) return;
                               const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
-                              const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
                               const seoDescription = await showPrompt(
                                 t("heading_seo_description_title"),
-                                h.seo_description || "",
+                                description,
                                 t("heading_seo_description_hint")
                               );
                               updateHeading(h.id, {
                                 title: title || h.title,
                                 sort_order: Number(sort ?? h.sort_order),
-                                description: toUndef(description),
+                                description: null,
                                 seo_description: toUndef(seoDescription),
                               }).catch(() => {});
                             }}
@@ -175,13 +180,14 @@ export default function HeadingsView({
                           </button>
                         </div>
                       </div>
-                      {h.description && (
+                      {description && (
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 p-3 bg-gray-50/50 dark:bg-gray-800/30 rounded-xl">
-                          {h.description}
+                          {description}
                         </p>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                   <PaginationControls
                     page={pagedH1.page}
                     pageCount={pagedH1.pageCount}
@@ -227,7 +233,10 @@ export default function HeadingsView({
                   </div>
                 ) : (
                   <div className="grid gap-2">
-                    {pagedH2.items.map((h) => (
+                    {pagedH2.items.map((h) => {
+                      const description = visibleHeadingDescription(h);
+
+                      return (
                       <div key={h.id} className={itemCard}>
                         <div className="flex items-center justify-between gap-4">
                           <button
@@ -247,16 +256,15 @@ export default function HeadingsView({
                                 const title = await showPrompt(t("edit_subtitle"), h.title || "", t("new_subtitle"));
                                 if (title === null) return;
                                 const sort = await showPrompt(t("edit_order"), String(h.sort_order ?? 0), t("order_int"));
-                                const description = await showPrompt(t("edit_description"), h.description || "", t("description_optional"));
                                 const seoDescription = await showPrompt(
                                   t("heading_seo_description_title"),
-                                  h.seo_description || "",
+                                  description,
                                   t("heading_seo_description_hint")
                                 );
                                 updateHeading(h.id, {
                                   title: title || h.title,
                                   sort_order: Number(sort ?? h.sort_order),
-                                  description: toUndef(description),
+                                  description: null,
                                   seo_description: toUndef(seoDescription),
                                 }).catch(() => {});
                               }}
@@ -274,13 +282,14 @@ export default function HeadingsView({
                             </button>
                           </div>
                         </div>
-                        {h.description && (
+                        {description && (
                           <p className="text-sm text-gray-600 dark:text-gray-400 mt-3 p-3 bg-gray-50/50 dark:bg-gray-800/30 rounded-xl">
-                            {h.description}
+                            {description}
                           </p>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                     <PaginationControls
                       page={pagedH2.page}
                       pageCount={pagedH2.pageCount}

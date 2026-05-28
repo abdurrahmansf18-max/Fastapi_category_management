@@ -1,0 +1,9 @@
+# CrowdSec Log Acquisition — Caddy erişim loglarını oku
+#
+# Caddy JSON formatında /var/log/caddy/access.log'a yazar.
+# Bu dosya Caddy ve CrowdSec container'ları arasında paylaşılır.
+
+filenames:
+  - /var/log/caddy/access.log
+labels:
+  type: caddy

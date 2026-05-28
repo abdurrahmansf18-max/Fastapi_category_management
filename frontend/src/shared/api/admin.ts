@@ -260,6 +260,39 @@ export const AdminUsageApi = {
   get: () => http.get<any>("/admin/usage"),
 };
 
+export type AdminAnalyticsOverview = {
+  period_days: number;
+  summary: {
+    page_views: number;
+    viewed_pages: number;
+    visitors: number;
+  };
+  top_pages: Array<{
+    url: string;
+    title: string;
+    view_count: number;
+    visitor_count: number;
+    last_seen_at: string;
+  }>;
+  zero_result_queries: Array<{
+    query: string;
+    source: "public" | "suggest" | "admin";
+    search_count: number;
+    last_seen_at: string;
+  }>;
+  top_queries: Array<{
+    query: string;
+    source: "public" | "suggest" | "admin";
+    search_count: number;
+    avg_results: number;
+    last_seen_at: string;
+  }>;
+};
+
+export const AdminAnalyticsApi = {
+  overview: () => http.get<AdminAnalyticsOverview>("/admin/analytics/overview?days=30&limit=10"),
+};
+
 export type SearchAnalyticsRow = {
   query: string;
   source: "public" | "suggest" | "admin";

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BarChart3, RefreshCw } from "lucide-react";
+import { BarChart3, Download, Info, RefreshCw } from "lucide-react";
 import { AdminSearchApi, type SearchAnalyticsRow } from "../../shared/api/admin";
+import { API_BASE, getTenantSlug } from "../../shared/api/client";
 
 export default function AdminSearchInsights() {
   const { t } = useTranslation();
@@ -53,16 +54,32 @@ export default function AdminSearchInsights() {
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
+          <a
+            href={`${API_BASE}/t/${getTenantSlug()}/admin/search/analytics/export`}
+            download
+            className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {t("search_history_export")}
+          </a>
           <button
             type="button"
             onClick={queueReindex}
             disabled={reindexing}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 text-xs font-semibold text-white transition-colors disabled:opacity-50"
+            className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${reindexing ? "animate-spin" : ""}`} />
             {t("reindex_search")}
           </button>
         </div>
+      </div>
+
+      {/* 24h retention note */}
+      <div className="mx-5 mt-4 flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 dark:border-blue-800/50 dark:bg-blue-900/20">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
+        <p className="text-xs leading-relaxed text-blue-700 dark:text-blue-300">
+          {t("search_history_note")}
+        </p>
       </div>
 
       {notice && (
@@ -79,33 +96,35 @@ export default function AdminSearchInsights() {
         </p>
       ) : (
         <div>
-          <table className="min-w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700/60 dark:bg-gray-800/40">
-                <th className="px-5 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("query")}</th>
-                <th className="px-4 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("source")}</th>
-                <th className="px-4 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("search_count")}</th>
-                <th className="px-4 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("avg_results")}</th>
-              </tr>
-            </thead>
-          </table>
-          <div className="max-h-64 overflow-y-auto">
-            <table className="min-w-full text-left text-xs">
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40">
-                {rows.map((row) => (
-                  <tr key={`${row.source}:${row.query}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                    <td className="w-1/2 max-w-0 truncate px-5 py-3 font-medium text-gray-800 dark:text-gray-200" title={row.query}>
-                      {row.query}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">{row.source}</td>
-                    <td className="px-4 py-3 font-semibold text-gray-700 dark:text-gray-300">{row.search_count}</td>
-                    <td className={`px-4 py-3 font-bold ${Number(row.avg_results) === 0 ? "text-red-500 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                      {row.avg_results}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+          <div className="overflow-x-auto">
+            <table className="min-w-[520px] text-left text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50 dark:border-gray-700/60 dark:bg-gray-800/40">
+                  <th className="px-5 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("query")}</th>
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("source")}</th>
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("search_count")}</th>
+                  <th className="px-4 py-2.5 font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{t("avg_results")}</th>
+                </tr>
+              </thead>
             </table>
+            <div className="max-h-64 overflow-y-auto">
+              <table className="min-w-[520px] text-left text-xs">
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700/40">
+                  {rows.map((row) => (
+                    <tr key={`${row.source}:${row.query}`} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                      <td className="w-1/2 max-w-0 truncate px-5 py-3 font-medium text-gray-800 dark:text-gray-200" title={row.query}>
+                        {row.query}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{row.source}</td>
+                      <td className="px-4 py-3 font-semibold text-gray-700 dark:text-gray-300">{row.search_count}</td>
+                      <td className={`px-4 py-3 font-bold ${Number(row.avg_results) === 0 ? "text-red-500 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                        {row.avg_results}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
           <div className="border-t border-gray-200 dark:border-gray-700/60 px-5 py-2.5">
             <p className="text-xs text-gray-400">{rows.length} {t("items")}</p>

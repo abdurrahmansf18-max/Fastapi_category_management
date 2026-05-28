@@ -1,9 +1,30 @@
 {
 	email {$ACME_EMAIL}
+
+	# Coraza ve CrowdSec direktiflerinin sırası önemli
+	order coraza_waf first
+	order crowdsec before reverse_proxy
+
+	# CrowdSec LAPI bağlantısı (global blok)
+	crowdsec {
+		api_url http://crowdsec:8080
+		api_key {$CROWDSEC_BOUNCER_API_KEY}
+		ticker_interval 15s
+	}
 }
 
 {$APP_DOMAIN} {
 	encode zstd gzip
+
+	# Yapılandırılmış erişim logu — CrowdSec bu dosyayı okur
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 100mb
+			roll_keep 5
+			roll_keep_for 720h
+		}
+		format json
+	}
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -11,6 +32,50 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Server başlığını gizle
+		-Server
+	}
+
+	# OWASP Coraza WAF — OWASP CRS kuralları
+	coraza_waf {
+		load_owasp_crs
+		directives `
+			Include @coraza.conf-recommended
+			Include @crs-setup.conf.example
+			Include @owasp_crs/*.conf
+
+			# Önleme modu — sadece tespit için: SecRuleEngine DetectionOnly
+			SecRuleEngine On
+
+			# İstek gövdesi limitleri
+			SecRequestBodyLimit 10485760
+			SecRequestBodyNoFilesLimit 1048576
+			SecRequestBodyLimitAction Reject
+
+			# Yanıt gövdesi inceleme
+			SecResponseBodyAccess On
+			SecResponseBodyLimit 524288
+			SecResponseBodyLimitAction ProcessPartial
+
+			# JSON ve form veri ayrıştırma
+			SecRequestBodyInMemoryLimit 131072
+
+			# API endpoint'leri için false positive azaltma
+			# /api/v1/* path'leri için bazı CRS kurallarını devre dışı bırak
+			SecRule REQUEST_URI "@beginsWith /api/" \
+				"id:9000001,phase:1,pass,nolog,\
+				ctl:ruleRemoveById=920350,\
+				ctl:ruleRemoveById=920420"
+		`
+	}
+
+	# CrowdSec kararlarına göre kötü niyetli IP'leri engelle
+	crowdsec
+
+	# /metrics endpoint'ini dışarıya kapat
+	@api_metrics path /api/metrics /api/metrics/*
+	handle @api_metrics {
+		respond 404
 	}
 
 	@api path /api/*

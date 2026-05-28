@@ -1,0 +1,150 @@
+name: DAST Security Scan
+
+on:
+  schedule:
+    # Her Pazartesi 03:00 UTC - production'a yük az olduğu zaman
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Taranacak hedef URL (varsayılan: DEPLOY_URL değişkeni)"
+        required: false
+        default: ""
+      scan_type:
+        description: "Tarama türü"
+        required: false
+        default: "baseline"
+        type: choice
+        options:
+          - baseline
+          - api
+
+jobs:
+  zap-baseline:
+    name: OWASP ZAP Baseline Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type != 'api'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target URL
+        id: target
+        env:
+          INPUT_URL: ${{ github.event.inputs.target_url }}
+          DEPLOY_URL: ${{ vars.DEPLOY_HEALTH_URL }}
+        run: |
+          URL="${INPUT_URL:-$DEPLOY_URL}"
+          if [ -z "$URL" ]; then
+            echo "ERROR: Hedef URL belirtilmedi. DEPLOY_HEALTH_URL repo değişkeni veya workflow input gerekli."
+            exit 1
+          fi
+          # /healthz gibi health endpoint'i değil, root URL kullan
+          BASE_URL="${URL%/healthz}"
+          echo "url=$BASE_URL" >> "$GITHUB_OUTPUT"
+          echo "Taranacak URL: $BASE_URL"
+
+      - name: OWASP ZAP Baseline Passive Scan
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ steps.target.outputs.url }}
+          rules_file_name: ".github/zap-rules.tsv"
+          # Pasif tarama — production'a zarar vermez
+          cmd_options: "-a -j"
+          # Kritik bulgu yoksa workflow'u fail etme (tuning aşamasında)
+          fail_action: false
+          artifact_name: zap-baseline-report
+          allow_issue_writing: false
+
+      - name: Upload ZAP HTML Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-baseline-report-${{ github.run_id }}
+          path: report_html.html
+          retention-days: 30
+
+      - name: Upload ZAP JSON Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-baseline-json-${{ github.run_id }}
+          path: report_json.json
+          retention-days: 30
+
+  zap-api-scan:
+    name: OWASP ZAP API Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'api'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve API target
+        id: target
+        env:
+          INPUT_URL: ${{ github.event.inputs.target_url }}
+          DEPLOY_URL: ${{ vars.DEPLOY_HEALTH_URL }}
+        run: |
+          URL="${INPUT_URL:-$DEPLOY_URL}"
+          if [ -z "$URL" ]; then
+            echo "ERROR: Hedef URL belirtilmedi."
+            exit 1
+          fi
+          BASE_URL="${URL%/healthz}"
+          echo "url=$BASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: OWASP ZAP API Scan (OpenAPI)
+        uses: zaproxy/action-api-scan@v0.9.0
+        with:
+          target: "${{ steps.target.outputs.url }}/api/openapi.json"
+          format: openapi
+          fail_action: false
+          artifact_name: zap-api-report
+          allow_issue_writing: false
+
+      - name: Upload API Scan Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-api-report-${{ github.run_id }}
+          path: report_html.html
+          retention-days: 30
+
+  nuclei-scan:
+    name: Nuclei CVE & Misconfiguration Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target URL
+        id: target
+        env:
+          INPUT_URL: ${{ github.event.inputs.target_url }}
+          DEPLOY_URL: ${{ vars.DEPLOY_HEALTH_URL }}
+        run: |
+          URL="${INPUT_URL:-$DEPLOY_URL}"
+          if [ -z "$URL" ]; then
+            echo "Hedef URL yok, Nuclei taraması atlanıyor."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            BASE_URL="${URL%/healthz}"
+            echo "url=$BASE_URL" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Nuclei Scan
+        if: steps.target.outputs.skip != 'true'
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: ${{ steps.target.outputs.url }}
+          # Güvenlik başlıkları, TLS, yaygın CVE'ler — aktif exploitation yok
+          tags: "headers,ssl,misconfig,tech,cve"
+          severity: "medium,high,critical"
+          output: nuclei-results.txt
+
+      - name: Upload Nuclei Results
+        uses: actions/upload-artifact@v4
+        if: always() && steps.target.outputs.skip != 'true'
+        with:
+          name: nuclei-scan-${{ github.run_id }}
+          path: nuclei-results.txt
+          retention-days: 30
