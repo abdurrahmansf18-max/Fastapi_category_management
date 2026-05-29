@@ -1,4 +1,5 @@
 # app/routers/public.py
+import re
 import uuid
 from typing import List, Dict
 from uuid import UUID
@@ -37,6 +38,9 @@ public_router = APIRouter(
     dependencies=[Depends(require_tenant_context)],
 )
 
+HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+DEFAULT_PRIMARY_COLOR = "#10b981"
+
 
 class FeedbackIn(BaseModel):
     rating: str = Field(pattern="^(helpful|not_helpful)$")
@@ -57,6 +61,8 @@ def _resolve_site_settings(settings: dict, tenant) -> dict:
         resolved["site_title"] = tenant.name or tenant.slug
     if "site_logo" not in resolved:
         resolved["site_logo"] = ""
+    color = (resolved.get("primary_color") or DEFAULT_PRIMARY_COLOR).strip()
+    resolved["primary_color"] = color.lower() if HEX_COLOR_RE.fullmatch(color) else DEFAULT_PRIMARY_COLOR
     resolved["plan_code"] = tenant.plan_code
     return resolved
 

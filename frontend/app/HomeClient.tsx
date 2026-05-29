@@ -885,7 +885,9 @@ export default function HomeClient() {
                   </div>
                 </div>
 
-                <p className="mt-5 border-l-2 border-emerald-400/70 pl-4 text-sm leading-7 text-gray-600 dark:text-gray-400">{copy.devBio}</p>
+                <p className="mt-5 rounded-xl border border-emerald-200/50 bg-emerald-50/50 px-5 py-4 text-sm leading-7 text-gray-700 dark:border-emerald-800/40 dark:bg-emerald-950/20 dark:text-gray-300">
+                  {copy.devBio}
+                </p>
 
                 <div className="mt-6 grid gap-2.5">
                   <a href="mailto:230205907@ostimteknik.edu.tr"
@@ -906,14 +908,6 @@ export default function HomeClient() {
                     <span className="min-w-0 truncate">{copy.devGithubLabel}</span>
                     <span className="min-w-0 truncate text-xs text-gray-400">@abdurrahmansf18-max</span>
                   </a>
-                </div>
-
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {["Python", "FastAPI", "Next.js", "TypeScript", "PostgreSQL", "Redis", "Docker"].map((tech) => (
-                    <span key={tech} className="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-medium text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
-                      {tech}
-                    </span>
-                  ))}
                 </div>
               </div>
             </div>

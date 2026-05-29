@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 # ---- Auth/Admin ----
 class TokenOut(BaseModel):
@@ -338,7 +338,14 @@ class RedirectRuleOut(BaseModel):
 class SiteSettings(BaseModel):
     site_title: str
     site_logo: str
+    primary_color: str = "#10b981"
 
 class SiteSettingsUpdate(BaseModel):
     site_title: Optional[str] = None
     site_logo: Optional[str] = None
+    primary_color: Optional[str] = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+
+    @field_validator("primary_color")
+    @classmethod
+    def normalize_primary_color(cls, value: Optional[str]) -> Optional[str]:
+        return value.lower() if value else value

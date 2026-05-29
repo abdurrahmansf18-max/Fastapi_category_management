@@ -4,6 +4,7 @@ import PwaRegister from "./PwaRegister";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   applicationName: "Docs Platform",
   title: {
     default: "Docs Platform",
@@ -11,6 +12,11 @@ export const metadata: Metadata = {
   },
   description: "Multi-tenant documentation platform for public docs and private admin workflows.",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: ["/favicon.svg"],
+    apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+  },
   robots: { index: true, follow: true },
 };
 

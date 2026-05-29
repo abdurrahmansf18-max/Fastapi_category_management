@@ -2,7 +2,7 @@
 -- Source: app.db.provisioning.PLATFORM_DDL + TENANT_DDL
 -- Regenerate: python backend/scripts/generate_schema_sql.py
 -- platform_checksum: 8ba2584a0af5cd64dd3d68668fa3cff770422a42f6de7c4a50f8be226bc05bdc
--- tenant_template_checksum: 99014859d856b7ed1aa7c468c744abfa8c1a3a0518e5edaebf5035679dbaea33
+-- tenant_template_checksum: 229c32c2d27ddf7b98c9ee140f26eddecbd7956bc3b17b7e4917c08afd2c6db5
 -- PUBLIC PLATFORM SCHEMA
 
 CREATE EXTENSION IF NOT EXISTS citext;
@@ -739,3 +739,5 @@ CREATE INDEX IF NOT EXISTS idx_content_attachment_order ON content_attachment(co
 CREATE INDEX IF NOT EXISTS idx_redirect_rule_active_source ON redirect_rule(is_active, source_path);
 
 INSERT INTO site_setting (key, value) VALUES ('site_logo', '') ON CONFLICT DO NOTHING;
+
+INSERT INTO site_setting (key, value) VALUES ('primary_color', '#10b981') ON CONFLICT DO NOTHING;

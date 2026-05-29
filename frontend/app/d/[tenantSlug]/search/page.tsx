@@ -5,6 +5,8 @@ import { apiGet, siteUrl, tenantSettings } from "../../../lib/api";
 import { publicCopy, resolvePublicLang } from "../../../lib/server-i18n";
 import AdminFloatingButton from "../AdminFloatingButton";
 import PublicHeader from "../PublicHeader";
+import PageViewTracker from "../PageViewTracker";
+import { tenantThemeStyle } from "../tenant-theme";
 import SearchPageClient from "./SearchPageClient";
 
 type SearchHit = {
@@ -72,7 +74,7 @@ export default async function SearchPage({
       : [];
 
   return (
-    <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
+    <main dir={dir} style={tenantThemeStyle(settings.primary_color)} className="tenant-theme min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -86,6 +88,7 @@ export default async function SearchPage({
           }),
         }}
       />
+      <PageViewTracker tenantSlug={tenantSlug} title={labels.searchTitle} />
       <PublicHeader tenantSlug={tenantSlug} settings={settings} lang={lang} />
 
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">

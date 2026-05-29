@@ -702,6 +702,7 @@ TENANT_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_content_attachment_order ON content_attachment(content_id, sort_order, id)",
     "CREATE INDEX IF NOT EXISTS idx_redirect_rule_active_source ON redirect_rule(is_active, source_path)",
     "INSERT INTO site_setting (key, value) VALUES ('site_logo', '') ON CONFLICT DO NOTHING",
+    "INSERT INTO site_setting (key, value) VALUES ('primary_color', '#10b981') ON CONFLICT DO NOTHING",
 ]
 
 

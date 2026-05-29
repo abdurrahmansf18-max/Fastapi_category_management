@@ -10,9 +10,31 @@ type RealtimeEvent = {
   created_at?: string;
 };
 
-function wsUrlForTenant(tenantSlug: string) {
+function wsUrlForTenant(tenantSlug: string): string | null {
+  const configuredBase = process.env.NEXT_PUBLIC_WS_BASE?.replace(/\/$/, "");
+  const encodedTenant = encodeURIComponent(tenantSlug);
+  if (configuredBase) {
+    const url = new URL(configuredBase);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/$/, "")}/t/${encodedTenant}/admin/realtime`;
+  }
+
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE || "/api";
+  if (apiBase.startsWith("http://") || apiBase.startsWith("https://")) {
+    const url = new URL(apiBase);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/$/, "")}/t/${encodedTenant}/admin/realtime`;
+  }
+
+  const isLocalNextDev =
+    ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+    window.location.port === "3000";
+  if (isLocalNextDev) {
+    return null;
+  }
+
   const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${scheme}://${window.location.host}/api/t/${tenantSlug}/admin/realtime`;
+  return `${scheme}://${window.location.host}/api/t/${encodedTenant}/admin/realtime`;
 }
 
 export default function AdminRealtimeNotifications({
@@ -26,14 +48,19 @@ export default function AdminRealtimeNotifications({
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<number | null>(null);
   const [connected, setConnected] = useState(false);
+  const [available, setAvailable] = useState(true);
   const [events, setEvents] = useState<RealtimeEvent[]>([]);
 
   useEffect(() => {
     if (!tenantSlug || typeof window === "undefined") return;
+    const wsUrl = wsUrlForTenant(tenantSlug);
+    setAvailable(Boolean(wsUrl));
+    if (!wsUrl) return;
+
     let closed = false;
 
     const connect = () => {
-      const socket = new WebSocket(wsUrlForTenant(tenantSlug));
+      const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
       socket.onopen = () => setConnected(true);
@@ -64,6 +91,7 @@ export default function AdminRealtimeNotifications({
   }, [onChange, tenantSlug]);
 
   const latest = events[0];
+  if (!available && !latest) return null;
 
   return (
     <div className="fixed end-2 top-36 z-40 w-[min(22rem,calc(100vw-1rem))] space-y-2 md:end-4 md:top-20 md:w-[min(24rem,calc(100vw-2rem))]">

@@ -1,5 +1,43 @@
 name: fastapi-prod
 
+# ── Paylaşılan tanımlar ──────────────────────────────────────────────
+x-backend-build: &backend-build
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
+  REDIS_URL: redis://redis:6379/0
+  MEILISEARCH_URL: http://meilisearch:7700
+  MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY}
+  SECRET_KEY: ${SECRET_KEY}
+  APP_PUBLIC_BASE_URL: https://${APP_DOMAIN}
+  API_PUBLIC_PREFIX: /api
+  CORS_ORIGINS: '["https://${APP_DOMAIN}"]'
+  TRUSTED_HOSTS: '["${APP_DOMAIN}","backend","localhost","127.0.0.1"]'
+  COOKIE_SECURE: "true"
+  COOKIE_SAMESITE: lax
+  PUBLIC_CACHE_ETAG_MAX_BYTES: ${PUBLIC_CACHE_ETAG_MAX_BYTES:-262144}
+  PLATFORM_OWNER_EMAIL: ${PLATFORM_OWNER_EMAIL}
+  PLATFORM_OWNER_PASSWORD_HASH: ${PLATFORM_OWNER_PASSWORD_HASH}
+  PLATFORM_OWNER_TOTP_SECRET: ${PLATFORM_OWNER_TOTP_SECRET}
+  SMTP_HOST: ${SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER}
+  SMTP_PASSWORD: ${SMTP_PASSWORD}
+  SMTP_FROM: ${SMTP_FROM}
+  SENTRY_DSN: ${SENTRY_DSN}
+  SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+  SENTRY_RELEASE: ${SENTRY_RELEASE:-docs-platform}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-180}
+  # Redis Sentinel — boş bırakılırsa REDIS_URL doğrudan kullanılır
+  REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+  REDIS_SENTINEL_MASTER: mymaster
+
+# ── Servisler ────────────────────────────────────────────────────────
 services:
   caddy:
     build:
@@ -47,46 +85,17 @@ services:
         condition: service_healthy
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    <<: *backend-build
     restart: unless-stopped
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      - REDIS_URL=redis://redis:6379/0
-      - MEILISEARCH_URL=http://meilisearch:7700
-      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
-      - APP_PUBLIC_BASE_URL=https://${APP_DOMAIN}
-      - API_PUBLIC_PREFIX=/api
-      - 'CORS_ORIGINS=["https://${APP_DOMAIN}"]'
-      - 'TRUSTED_HOSTS=["${APP_DOMAIN}","backend","localhost","127.0.0.1"]'
-      - SECRET_KEY=${SECRET_KEY}
-      - COOKIE_SECURE=true
-      - PUBLIC_CACHE_ETAG_MAX_BYTES=${PUBLIC_CACHE_ETAG_MAX_BYTES:-262144}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - SMTP_FROM=${SMTP_FROM}
-      - SENTRY_DSN=${SENTRY_DSN}
-      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}
-      - SENTRY_RELEASE=${SENTRY_RELEASE:-docs-platform}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-180}
-      - OPS_STATUS_DIR=/ops-status
-      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
-      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - PLATFORM_OWNER_EMAIL=${PLATFORM_OWNER_EMAIL}
-      - PLATFORM_OWNER_PASSWORD_HASH=${PLATFORM_OWNER_PASSWORD_HASH}
-      - PLATFORM_OWNER_TOTP_SECRET=${PLATFORM_OWNER_TOTP_SECRET}
+      <<: *backend-env
+      OPS_STATUS_DIR: /ops-status
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       # Güvenilir proxy katman sayısı (Caddy=1)
-      - TRUSTED_PROXY_COUNT=1
-      # Redis Sentinel — boş bırakılırsa REDIS_URL doğrudan kullanılır
-      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
-      - REDIS_SENTINEL_MASTER=mymaster
+      TRUSTED_PROXY_COUNT: "1"
     volumes:
       - uploads:/app/uploads
       - ops_status:/ops-status:ro
@@ -106,63 +115,25 @@ services:
       pgbouncer:
         condition: service_started
 
+  # Migrate doğrudan PostgreSQL'e bağlanır — PgBouncer transaction mode DDL ile uyumsuz
   migrate:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    <<: *backend-build
     restart: "no"
     command: ["python", "run_migration.py"]
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      - SECRET_KEY=${SECRET_KEY}
-      - APP_PUBLIC_BASE_URL=https://${APP_DOMAIN}
-      - API_PUBLIC_PREFIX=/api
-      - 'CORS_ORIGINS=["https://${APP_DOMAIN}"]'
-      - 'TRUSTED_HOSTS=["${APP_DOMAIN}","backend","localhost","127.0.0.1"]'
-      - COOKIE_SECURE=true
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT:-587}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - SMTP_FROM=${SMTP_FROM}
-      - MEILISEARCH_URL=http://meilisearch:7700
-      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
-      - SENTRY_DSN=${SENTRY_DSN}
-      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}
-      - SENTRY_RELEASE=${SENTRY_RELEASE:-docs-platform}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-180}
-      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY}
-      - RESTIC_PASSWORD=${RESTIC_PASSWORD}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - PLATFORM_OWNER_EMAIL=${PLATFORM_OWNER_EMAIL}
-      - PLATFORM_OWNER_PASSWORD_HASH=${PLATFORM_OWNER_PASSWORD_HASH}
-      - PLATFORM_OWNER_TOTP_SECRET=${PLATFORM_OWNER_TOTP_SECRET}
+      <<: *backend-env
+      # PgBouncer bypass — DDL migration'ları doğrudan postgres'e
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
-      - pgbouncer
+      postgres:
+        condition: service_healthy
 
   worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    <<: *backend-build
     restart: unless-stopped
     command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      - REDIS_URL=redis://redis:6379/0
-      - MEILISEARCH_URL=http://meilisearch:7700
-      - MEILISEARCH_API_KEY=${MEILISEARCH_API_KEY}
-      - SECRET_KEY=${SECRET_KEY}
-      - SENTRY_DSN=${SENTRY_DSN}
-      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-production}
-      - SENTRY_RELEASE=${SENTRY_RELEASE:-docs-platform}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-180}
-      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
-      - REDIS_SENTINEL_MASTER=mymaster
+      <<: *backend-env
     volumes:
       - uploads:/app/uploads
     depends_on:
@@ -171,30 +142,22 @@ services:
       - meilisearch
 
   beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    <<: *backend-build
     restart: unless-stopped
     command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - AUDIT_RETENTION_DAYS=${AUDIT_RETENTION_DAYS:-180}
-      - SENTRY_DSN=${SENTRY_DSN}
-      - REDIS_SENTINEL_HOSTS=redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
-      - REDIS_SENTINEL_MASTER=mymaster
+      <<: *backend-env
     depends_on:
       - redis
       - worker
 
+  # ── Veritabanı Katmanı ─────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -207,7 +170,7 @@ services:
       start_period: 20s
 
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:1.23.1
     restart: unless-stopped
     environment:
       - DB_HOST=postgres
@@ -219,8 +182,10 @@ services:
       - DEFAULT_POOL_SIZE=50
       - AUTH_TYPE=scram-sha-256
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
+  # ── Redis HA (Master + Replica + 3 Sentinel) ──────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -259,12 +224,15 @@ services:
       retries: 5
       start_period: 15s
 
-  redis-sentinel-1: &sentinel
+  # Her sentinel kendi volume'una yazar — paylaşılan dosya yok
+  redis-sentinel-1:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-sentinel /etc/redis/sentinel.conf
+    entrypoint: ["/bin/sh", "/scripts/sentinel-entrypoint.sh"]
     volumes:
-      - ./infra/redis/sentinel.conf:/etc/redis/sentinel.conf
+      - ./infra/redis/sentinel-template.conf:/etc/redis/sentinel-template.conf:ro
+      - ./infra/redis/sentinel-entrypoint.sh:/scripts/sentinel-entrypoint.sh:ro
+      - sentinel_1_data:/data
     depends_on:
       redis:
         condition: service_healthy
@@ -272,10 +240,32 @@ services:
         condition: service_healthy
 
   redis-sentinel-2:
-    <<: *sentinel
+    image: redis:7-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/scripts/sentinel-entrypoint.sh"]
+    volumes:
+      - ./infra/redis/sentinel-template.conf:/etc/redis/sentinel-template.conf:ro
+      - ./infra/redis/sentinel-entrypoint.sh:/scripts/sentinel-entrypoint.sh:ro
+      - sentinel_2_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
 
   redis-sentinel-3:
-    <<: *sentinel
+    image: redis:7-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/scripts/sentinel-entrypoint.sh"]
+    volumes:
+      - ./infra/redis/sentinel-template.conf:/etc/redis/sentinel-template.conf:ro
+      - ./infra/redis/sentinel-entrypoint.sh:/scripts/sentinel-entrypoint.sh:ro
+      - sentinel_3_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      redis-replica:
+        condition: service_healthy
 
   redis-exporter:
     image: oliver006/redis_exporter:latest
@@ -288,6 +278,7 @@ services:
       redis:
         condition: service_healthy
 
+  # ── Arama ──────────────────────────────────────────────────────────
   meilisearch:
     image: getmeili/meilisearch:v1.12
     restart: unless-stopped
@@ -303,6 +294,7 @@ services:
       retries: 5
       start_period: 40s
 
+  # ── Gözlemlenebilirlik ─────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
@@ -363,6 +355,7 @@ services:
     depends_on:
       - loki
 
+  # ── Backup & Güvenlik ──────────────────────────────────────────────
   backup:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -432,6 +425,9 @@ volumes:
   redis_data:
     name: fastapi_redis_data
   redis_replica_data:
+  sentinel_1_data:
+  sentinel_2_data:
+  sentinel_3_data:
   meili_data:
     name: fastapi_meili_data
   prometheus_data:

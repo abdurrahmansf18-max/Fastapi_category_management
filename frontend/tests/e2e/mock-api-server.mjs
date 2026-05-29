@@ -88,7 +88,7 @@ const server = http.createServer((req, res) => {
   if (path === "/__health") return sendJson(res, 200, { ok: true });
 
   if (path === "/t/demo/settings") {
-    return sendJson(res, 200, { site_title: "Demo Docs", site_logo: "" });
+    return sendJson(res, 200, { site_title: "Demo Docs", site_logo: "", primary_color: "#10b981" });
   }
 
   if (path === "/t/demo/docs-index") {

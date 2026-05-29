@@ -1620,6 +1620,8 @@ async def update_site_settings(payload: SiteSettingsUpdate, _=Depends(get_curren
         await execute("INSERT INTO site_setting (key, value) VALUES ('site_title', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.site_title})
     if payload.site_logo is not None:
         await execute("INSERT INTO site_setting (key, value) VALUES ('site_logo', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.site_logo})
+    if payload.primary_color is not None:
+        await execute("INSERT INTO site_setting (key, value) VALUES ('primary_color', :val) ON CONFLICT (key) DO UPDATE SET value = :val", {"val": payload.primary_color})
     await invalidate_current_tenant_public_cache()
     await notify_admin_change("settings", "updated")
     return {"message": "Settings updated"}

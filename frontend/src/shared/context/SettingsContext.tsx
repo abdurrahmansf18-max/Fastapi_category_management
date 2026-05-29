@@ -9,6 +9,7 @@ function toPublicUrl(url: string): string {
 interface SettingsContextVal {
   siteTitle: string;
   siteLogo: string;
+  primaryColor: string;
   loading: boolean;
   reload: () => Promise<void>;
 }
@@ -32,6 +33,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [siteTitle, setSiteTitle] = useState(titleFromCurrentTenant);
   const [siteLogo, setSiteLogo] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("#10b981");
   const [loading, setLoading] = useState(true);
 
   const fetchSettings = async () => {
@@ -40,6 +42,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       if (res) {
         setSiteTitle(res.site_title || titleFromCurrentTenant());
         setSiteLogo(res.site_logo ? toPublicUrl(res.site_logo) : "");
+        setPrimaryColor(res.primary_color || "#10b981");
       }
     } catch (error) {
       console.error("Failed to load site settings", error);
@@ -54,7 +57,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ siteTitle, siteLogo, loading, reload: fetchSettings }}>
+    <SettingsContext.Provider value={{ siteTitle, siteLogo, primaryColor, loading, reload: fetchSettings }}>
       {children}
     </SettingsContext.Provider>
   );

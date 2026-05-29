@@ -6,6 +6,8 @@ import AdminFloatingButton from "./AdminFloatingButton";
 import PublicHeader from "./PublicHeader";
 import BackToTop from "./BackToTop";
 import PublicDocsLayout from "./PublicDocsLayout";
+import PageViewTracker from "./PageViewTracker";
+import { tenantThemeStyle } from "./tenant-theme";
 
 export const revalidate = 60;
 
@@ -87,13 +89,14 @@ export default async function TenantPublicPage({
 
   if (safeIndex.length === 0) {
     return (
-      <main dir={dir} className="flex min-h-screen flex-col bg-transparent">
+      <main dir={dir} style={tenantThemeStyle(settings.primary_color)} className="tenant-theme flex min-h-screen flex-col bg-transparent">
         <PublicHeader
           tenantSlug={tenantSlug}
           settings={settings}
           lang={lang}
           showMobileCategories={true}
         />
+        <PageViewTracker tenantSlug={tenantSlug} title={title} />
         <div className="flex flex-1 items-center justify-center p-8">
           <div className="text-center">
             {settings.site_logo ? (
@@ -113,8 +116,9 @@ export default async function TenantPublicPage({
   }
 
   return (
-    <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
+    <main dir={dir} style={tenantThemeStyle(settings.primary_color)} className="tenant-theme min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
+      <PageViewTracker tenantSlug={tenantSlug} title={title} />
       <PublicHeader
         tenantSlug={tenantSlug}
         settings={settings}

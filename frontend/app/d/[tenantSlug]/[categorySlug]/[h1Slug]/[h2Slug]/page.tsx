@@ -17,6 +17,7 @@ import BackToTop from "../../../BackToTop";
 import MarkdownPre from "../../../MarkdownPre";
 import CategorySidebar from "../../../CategorySidebar";
 import PageViewTracker from "../../../PageViewTracker";
+import { tenantThemeStyle } from "../../../tenant-theme";
 
 export const revalidate = 60;
 
@@ -269,7 +270,7 @@ export default async function PublicDocPage({ params }: { params: Promise<RouteP
   };
 
   return (
-    <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
+    <main dir={dir} style={tenantThemeStyle(settings.primary_color)} className="tenant-theme min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }} />
       <PageViewTracker tenantSlug={resolved.tenantSlug} title={page.title} contentId={page.content_id} />

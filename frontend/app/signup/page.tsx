@@ -228,13 +228,6 @@ export default function SignupApp() {
             </button>
           </form>
         )}
-
-        <a
-          className="mt-8 block text-center text-sm font-medium text-gray-500 transition hover:text-emerald-600 dark:text-gray-400 dark:hover:text-emerald-400"
-          href="/"
-        >
-          {t("back_home")}
-        </a>
       </section>
     </main>
   );

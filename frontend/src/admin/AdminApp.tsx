@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle2, Edit3, Globe2, LogOut, Moon, Sun, X, Zap }
 // frontend/src/admin/App.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import AdminBottomNav, { type AdminMobileSection } from "./components/AdminBottomNav";
+import AdminAppearanceSettings from "./components/AdminAppearanceSettings";
 import AdminAnalyticsDashboard from "./components/AdminAnalyticsDashboard";
 import AdminContentHealth from "./components/AdminContentHealth";
 import AdminRealtimeNotifications from "./components/AdminRealtimeNotifications";
@@ -86,7 +87,7 @@ function sectionFromHash(hash: string): AdminMobileSection | null {
 
 export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
   const { t } = useTranslation();
-  const { siteTitle, siteLogo, reload: reloadSettings } = useSettings();
+  const { siteTitle, siteLogo, primaryColor, reload: reloadSettings } = useSettings();
   const impersonationWarning = useMemo(() => {
     if (!tenantSlug) return null;
     return readCookie(`adm_impersonation_${tenantSlug.replace(/-/g, "_")}`);
@@ -872,6 +873,14 @@ export default function App({ tenantSlug = "" }: { tenantSlug?: string }) {
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 pb-8 sm:space-y-8 sm:px-6 sm:py-8">
         <section id="admin-overview" className={sectionClass("overview")}>
           <div className="space-y-4 sm:space-y-6">
+            <AdminAppearanceSettings
+              siteTitle={siteTitle}
+              siteLogo={siteLogo}
+              primaryColor={primaryColor}
+              reloadSettings={reloadSettings}
+              showNotification={showNotification}
+            />
+
             <AdminUsageBar usage={usage} />
 
             <AdminAnalyticsDashboard />

@@ -25,6 +25,11 @@ services:
       - uploads:/app/uploads
       - ops_status:/ops-status:ro
 
+  # Migrate: kaynak kodu anlık güncel olsun (dev'de migration ekleyince tekrar build gerekmez)
+  migrate:
+    volumes:
+      - ./backend:/app
+
   # Worker: kaynak kodu backend ile paylaşır (--reload gerekmez, restart yeterli)
   worker:
     volumes:

@@ -13,6 +13,13 @@ export default function AdminFloatingButton({
   const [show, setShow] = useState(false);
 
   useEffect(() => {
+    const cookieName = `adm_csrf_${tenantSlug.replace(/-/g, "_")}=`;
+    const hasAdminSession = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .some((part) => part.startsWith(cookieName));
+    if (!hasAdminSession) return;
+
     fetch(`/api/t/${tenantSlug}/admin/me`, { credentials: "include" })
       .then((r) => { if (r.ok) setShow(true); })
       .catch(() => {});

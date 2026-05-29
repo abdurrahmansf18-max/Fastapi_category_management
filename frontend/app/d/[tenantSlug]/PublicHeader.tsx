@@ -34,8 +34,8 @@ export default async function PublicHeader({
   return (
     <>
       <PublicSearchShortcut tenantSlug={tenantSlug} />
-      <header className="sticky top-0 z-30 border-b border-emerald-600/40 bg-emerald-700 dark:border-emerald-800 dark:bg-emerald-900">
-        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
+      <header className="tenant-header sticky top-0 z-30 border-b">
+        <div className="mx-auto flex max-w-7xl items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
 
           {/* Logo + Title */}
           <Link href={`/d/${tenantSlug}`} className="flex shrink-0 items-center gap-2.5">

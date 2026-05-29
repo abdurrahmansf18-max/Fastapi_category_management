@@ -10,6 +10,13 @@ import type {
 } from "../types/public";
 import type { ContentImage } from "../types/models";
 
+export type PublicSiteSettings = {
+  site_title?: string;
+  site_logo?: string;
+  primary_color?: string;
+  plan_code?: string;
+};
+
 export const PublicApi = {
   categories: () => http.get<Category[]>("/categories"),
   headingsL1: (categorySlug: string) =>
@@ -26,5 +33,5 @@ export const PublicApi = {
   contentImages: (contentId: string) => {
     return http.get<ContentImage[]>(`/contents/${contentId}/images`);
   },
-  settings: () => http.get<Record<string, string>>("/settings"),
+  settings: () => http.get<PublicSiteSettings>("/settings"),
 };

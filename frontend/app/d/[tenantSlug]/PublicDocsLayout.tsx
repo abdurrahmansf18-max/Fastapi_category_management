@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import MarkdownPre from "./MarkdownPre";
+import { trackTenantPageView } from "./PageViewTracker";
 
 const sanitizeSchema = {
   ...defaultSchema,
@@ -226,7 +227,7 @@ export default function PublicDocsLayout({
     setDrawerOpen(false);
   }
 
-  async function loadContent(headingId: string) {
+  async function loadContent(headingId: string, title: string) {
     setLoading(true);
     setContents([]);
     try {
@@ -257,6 +258,12 @@ export default function PublicDocsLayout({
         })
       );
       setContents(withAssets);
+      trackTenantPageView({
+        tenantSlug,
+        title,
+        contentId: withAssets[0]?.id,
+        url: `${window.location.pathname}${window.location.search}#${slugify(title)}`,
+      });
     } finally {
       setLoading(false);
     }
@@ -276,7 +283,7 @@ export default function PublicDocsLayout({
     } else {
       setActiveH1(h1);
       setActiveH2(null);
-      loadContent(h1.id);
+      loadContent(h1.id, h1.title);
     }
     setDrawerOpen(false);
   }
@@ -285,7 +292,7 @@ export default function PublicDocsLayout({
     setActiveH1(h1);
     setActiveH2(h2);
     setExpandedSlugs((prev) => new Set([...prev, h1.slug]));
-    loadContent(h2.id);
+    loadContent(h2.id, h2.title);
     setDrawerOpen(false);
   }
 
@@ -566,7 +573,7 @@ export default function PublicDocsLayout({
                       <span>/</span>
                       <button
                         type="button"
-                        onClick={() => { setActiveH2(null); loadContent(activeH1.id); }}
+                        onClick={() => { setActiveH2(null); loadContent(activeH1.id, activeH1.title); }}
                         className="hover:text-emerald-600 dark:hover:text-emerald-400"
                       >
                         {activeH1.title}

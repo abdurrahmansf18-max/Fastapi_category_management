@@ -16,6 +16,7 @@ import BackToTop from "../../BackToTop";
 import MarkdownPre from "../../MarkdownPre";
 import CategorySidebar from "../../CategorySidebar";
 import PageViewTracker from "../../PageViewTracker";
+import { tenantThemeStyle } from "../../tenant-theme";
 
 export const revalidate = 60;
 
@@ -222,7 +223,7 @@ export default async function PublicH1Page({ params }: { params: Promise<RoutePa
   };
 
   return (
-    <main dir={dir} className="min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
+    <main dir={dir} style={tenantThemeStyle(settings.primary_color)} className="tenant-theme min-h-screen bg-transparent text-gray-900 dark:text-gray-50">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
       <PageViewTracker tenantSlug={resolved.tenantSlug} title={data.h1.title} contentId={data.contents[0]?.id} />
 

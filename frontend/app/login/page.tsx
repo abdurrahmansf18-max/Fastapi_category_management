@@ -109,14 +109,14 @@ export default function LoginPage() {
 
   if (!mounted) {
     return (
-      <main className="login-stage flex min-h-screen items-center justify-center px-4 py-8">
+      <main className="login-stage flex min-h-screen items-start justify-center overflow-y-auto px-4 py-6 sm:items-center sm:py-8">
         <section className="login-card w-full max-w-xl rounded-[1.35rem] p-6 shadow-2xl sm:p-8 md:p-10" />
       </main>
     );
   }
 
   return (
-    <main className="login-stage flex min-h-screen items-center justify-center px-4 py-8">
+    <main className="login-stage flex min-h-screen items-start justify-center overflow-y-auto px-4 py-6 sm:items-center sm:py-8">
       <section className="login-card w-full max-w-xl rounded-[1.35rem] p-6 shadow-2xl sm:p-8 md:p-10">
 
         {/* Top bar: language switcher */}

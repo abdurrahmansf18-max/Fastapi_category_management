@@ -35,6 +35,47 @@ body {
   --card-shadow:    0 1px 4px rgba(15,23,42,.08), 0 8px 24px rgba(15,23,42,.06);
   --section-title:  #1e293b;                   /* slate-800 */
   --text-muted:     #64748b;                   /* slate-500 */
+  --tenant-primary: #10b981;
+  --tenant-primary-hover: #0e9f6e;
+  --tenant-primary-rgb: 16 185 129;
+  --tenant-primary-soft: rgba(16, 185, 129, 0.12);
+}
+
+.tenant-theme {
+  --tenant-primary: #10b981;
+  --tenant-primary-hover: #0e9f6e;
+  --tenant-primary-rgb: 16 185 129;
+  --tenant-primary-soft: rgba(16, 185, 129, 0.12);
+}
+
+.tenant-header {
+  background: linear-gradient(135deg, var(--tenant-primary), var(--tenant-primary-hover));
+  border-color: rgb(var(--tenant-primary-rgb) / 0.42);
+}
+
+.tenant-bg-primary {
+  background-color: var(--tenant-primary);
+}
+
+.tenant-bg-primary:hover {
+  background-color: var(--tenant-primary-hover);
+}
+
+.tenant-bg-soft {
+  background-color: var(--tenant-primary-soft);
+}
+
+.tenant-text-primary {
+  color: var(--tenant-primary);
+}
+
+.tenant-border-primary {
+  border-color: rgb(var(--tenant-primary-rgb) / 0.36);
+}
+
+.tenant-ring-primary:focus {
+  border-color: var(--tenant-primary);
+  box-shadow: 0 0 0 3px rgb(var(--tenant-primary-rgb) / 0.18);
 }
 
 .home-shell {

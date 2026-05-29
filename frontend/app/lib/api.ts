@@ -6,6 +6,7 @@ export const apiBase =
 export type SiteSettings = {
   site_title?: string;
   site_logo?: string;
+  primary_color?: string;
   plan_code?: string;
 };
 
